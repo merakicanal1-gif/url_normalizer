@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: URL Normalizer API
+  description: API REST para normalização de URLs de marketplaces (Amazon, Mercado Livre, Shopee) e gerenciamento de sessões interativas de login.
+  version: 1.0.0-beta
+servers:
+  - url: http://localhost:3000
+    description: Servidor Local de Desenvolvimento
+paths:
+  /normalize:
+    post:
+      summary: Normaliza URL de Marketplace
+      description: Processa redirects e extrai o código canônico do produto na URL informada.
+      parameters:
+        - name: x-profile-id
+          in: header
+          required: false
+          schema:
+            type: string
+          description: ID de perfil específico de sessão a ser utilizado.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - url
+              properties:
+                url:
+                  type: string
+                  example: https://www.amazon.com.br/dp/B078GZM49M
+      responses:
+        '200':
+          description: Normalização realizada com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  marketplace:
+                    type: string
+                  url_final:
+                    type: string
+                  id_produto:
+                    type: string
+                  titulo:
+                    type: string
+                  imagem:
+                    type: string
+        '403':
+          description: Bloqueio WAF/CAPTCHA detectado e nenhuma sessão de login ativa disponível
+        '422':
+          description: URL não suportada ou código de produto inválido
+
+  /sessions:
+    get:
+      summary: Listar Perfis de Sessão
+      description: Retorna todos os perfis armazenados fisicamente de forma criptografada.
+      responses:
+        '200':
+          description: Lista de perfis
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      type: object
+
+  /sessions/interactive:
+    get:
+      summary: Listar Sessões Interativas Ativas
+      description: Retorna as sessões interativas ativas atualmente mantidas em memória.
+      responses:
+        '200':
+          description: Lista de sessões em memória
+
+  /sessions/{marketplace}/{profileId}/interactive:
+    post:
+      summary: Inicializar Sessão Interativa
+      description: Cria um contexto interativo e uma página VNC/CDP no Browserless para login do operador.
+      parameters:
+        - name: marketplace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '201':
+          description: Sessão interativa iniciada
+        '409':
+          description: Conflito (Perfil já possui sessão interativa ativa)
+    patch:
+      summary: Transicionar Status da Sessão
+      description: Altera o status da máquina de estados do fluxo de login interativo.
+      parameters:
+        - name: marketplace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - transition
+              properties:
+                transition:
+                  type: string
+                  enum: [LOGIN_IN_PROGRESS, READY_TO_SAVE, FAILED]
+      responses:
+        '200':
+          description: Transição realizada com sucesso
+        '400':
+          description: Transição inválida
+        '409':
+          description: Sessão ocupada (SESSION_BUSY)
+    delete:
+      summary: Encerrar Sessão Interativa
+      description: Fecha as conexões do navegador e apaga a sessão em memória.
+      parameters:
+        - name: marketplace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sessão encerrada
+
+  /sessions/{marketplace}/{profileId}/save:
+    post:
+      summary: Salvar Cookies da Sessão
+      description: Extrai e persiste com criptografia os cookies de login gerados na sessão interativa.
+      parameters:
+        - name: marketplace
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: profileId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Sessão salva com sucesso
+        '409':
+          description: Sessão ocupada ou não qualificada para salvar
+
+  /infrastructure/browser/health:
+    get:
+      summary: Saúde da Conexão Browserless
+      responses:
+        '200':
+          description: Saudável
+        '503':
+          description: Indisponível
+
+  /infrastructure/runtime:
+    get:
+      summary: Diagnóstico de Recursos
+      description: Snapshot em tempo real de contexts, pages e memória (Leak Detector).
+      responses:
+        '200':
+          description: Dados coletados com sucesso

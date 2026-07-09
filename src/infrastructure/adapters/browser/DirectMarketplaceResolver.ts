@@ -1,0 +1,32 @@
+import { IUrlResolver, ResolvedUrl } from '../../../domain/ports/IUrlResolver.js';
+import { MarketplaceHostRegistry } from '../../../domain/services/MarketplaceHostRegistry.js';
+
+export class DirectMarketplaceResolver implements IUrlResolver {
+  public canResolve(url: URL): boolean {
+    return MarketplaceHostRegistry.isKnownMarketplace(url.hostname);
+  }
+
+  public async resolve(url: URL, _timeoutMs?: number): Promise<ResolvedUrl> {
+    const urlString = url.toString();
+    return {
+      originalUrl: urlString,
+      finalUrl: urlString,
+      statusCode: 200,
+      pageTitle: '',
+      detectedChallenge: false,
+      detectedCaptcha: false,
+      detectedConsent: false,
+      detectedLogin: false,
+      outcome: 'RESOLVED',
+      metadata: {
+        resolver: 'DirectMarketplaceResolver',
+        strategy: 'none',
+        redirectCount: 0,
+        durationMs: 0,
+        usedBrowser: false,
+        usedHttp: false,
+        fallbackOccurred: false
+      }
+    };
+  }
+}

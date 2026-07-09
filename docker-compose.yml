@@ -1,0 +1,30 @@
+services:
+  browserless:
+    image: ghcr.io/browserless/chromium:latest
+    container_name: url_normalizer_browserless
+    ports:
+      - "3001:3000"
+    environment:
+      - CONCURRENT=10
+      - TIMEOUT=60000
+      - SCREEN_WIDTH=1280
+      - SCREEN_HEIGHT=720
+    restart: always
+
+  url-normalizer:
+    build: .
+    container_name: url_normalizer_api
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - HOST=0.0.0.0
+      - BROWSERLESS_URL=ws://browserless:3000
+      - TIMEOUT_MS=30000
+      - NODE_ENV=development
+      - SESSION_STORAGE_DIR=/app/data/sessions
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - browserless
+    restart: always

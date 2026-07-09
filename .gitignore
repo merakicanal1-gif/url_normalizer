@@ -1,0 +1,46 @@
+# Dependências
+node_modules/
+
+# Build compilado
+dist/
+
+# Variáveis de ambiente e segredos
+.env
+.env.*
+!.env.example
+
+# Dados persistidos da aplicação
+# Contêm perfis, cookies e sessões autenticadas
+data/
+
+# Estados e arquivos criptografados
+*.enc
+
+# Testes e cobertura
+coverage/
+.nyc_output/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Arquivos temporários
+tmp/
+temp/
+*.tmp
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# IDEs e editores
+.vscode/
+.idea/
+
+# Playwright
+playwright-report/
+test-results/
+diagnostic_screenshot.png

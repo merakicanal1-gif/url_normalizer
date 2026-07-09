@@ -1,0 +1,35 @@
+{
+  "name": "url-normalizer",
+  "version": "0.1.0",
+  "description": "API REST para normalização de URLs de marketplaces em Arquitetura Hexagonal",
+  "type": "module",
+  "main": "dist/infrastructure/transport/http/server.js",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/infrastructure/transport/http/server.ts",
+    "clean": "rimraf dist",
+    "build": "npm run clean && tsc",
+    "start": "node --env-file=.env dist/infrastructure/transport/http/server.js",
+    "test": "node --import tsx --test src/application/resolver/CompositeUrlResolver.test.ts src/infrastructure/adapters/marketplaces/MarketplacePlugins.test.ts src/infrastructure/adapters/marketplaces/AuthenticationDetector.test.ts src/infrastructure/adapters/browser/PlaywrightBrowserRuntime.test.ts src/application/services/AuthenticationService.test.ts src/infrastructure/adapters/session/ProfileRepository.test.ts src/application/services/NormalizeService.test.ts src/infrastructure/adapters/browser/PlaywrightBrowserSessionFactory.test.ts src/application/resolver/AgnosticResolver.test.ts src/application/services/AgnosticNormalize.test.ts"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/resources": "^2.9.0",
+    "@opentelemetry/sdk-trace-base": "^2.9.0",
+    "@opentelemetry/sdk-trace-node": "^2.9.0",
+    "@opentelemetry/semantic-conventions": "^1.42.0",
+    "fastify": "^4.28.1",
+    "pino": "^9.2.0",
+    "playwright-core": "^1.45.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "rimraf": "^5.0.7",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "private": true
+}

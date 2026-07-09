@@ -33,6 +33,9 @@ export class AuthenticationService {
     startedAt: string;
     expiresAt: string;
   }> {
+    if (process.env.INTERACTIVE_BROWSER_ENABLED === 'false') {
+      throw new Error('INTERACTIVE_AUTHENTICATION_UNAVAILABLE');
+    }
     this.logger.info(`[AuthenticationService] Iniciando fluxo de autenticação para ${marketplace}/${profileId}`);
 
     // 1. Identificar o plugin do marketplace e obter a URL de login

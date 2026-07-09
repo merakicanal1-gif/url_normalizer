@@ -25,46 +25,52 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
   public async start(): Promise<void> {
     this.logger.info('[PlaywrightBrowserRuntime] Inicializando runtimes de navegadores locais...');
     
-    // Iniciar Interactive Browser (headful com fallback para headless se sem X11)
-    try {
-      this.interactiveBrowser = await chromium.launch({
-        headless: false
-      });
-      this.logger.info('[PlaywrightBrowserRuntime] Interactive Browser (headful) iniciado com sucesso.');
-    } catch (err: any) {
-      const isMissingX = err.message.includes('Missing X server') || 
-                          err.message.includes('DISPLAY') || 
-                          err.message.includes('headed browser without having a XServer');
+    const isInteractiveEnabled = process.env.INTERACTIVE_BROWSER_ENABLED !== 'false';
+
+    if (isInteractiveEnabled) {
+      // Iniciar Interactive Browser (headful com fallback para headless se sem X11)
+      try {
+        this.interactiveBrowser = await chromium.launch({
+          headless: false
+        });
+        this.logger.info('[PlaywrightBrowserRuntime] Interactive Browser (headful) iniciado com sucesso.');
+      } catch (err: any) {
+        const isMissingX = err.message.includes('Missing X server') || 
+                            err.message.includes('DISPLAY') || 
+                            err.message.includes('headed browser without having a XServer');
+        
+        if (isMissingX) {
+          const warnMsg = '[PlaywrightBrowserRuntime] Servidor X11 ausente. Iniciando Interactive Browser em modo headless como fallback.';
+          if (this.logger.warn) {
+            this.logger.warn(warnMsg);
+          } else {
+            this.logger.info(warnMsg);
+          }
+          this.interactiveBrowser = await chromium.launch({
+            headless: true
+          });
+          this.logger.info('[PlaywrightBrowserRuntime] Interactive Browser (headless) iniciado com sucesso como fallback.');
+        } else {
+          this.logger.error('[PlaywrightBrowserRuntime] Falha ao iniciar Interactive Browser (headful)', err);
+          throw err;
+        }
+      }
+
+      const interactivePid = (this.interactiveBrowser as any).process?.()?.pid;
+      this.logger.info(`[PlaywrightBrowserRuntime] [start] runtimeId=${this.runtimeId} Interactive Browser criado. PID: ${interactivePid}, Versão: ${this.interactiveBrowser.version()}, Conectado: ${this.interactiveBrowser.isConnected()}`);
       
-      if (isMissingX) {
-        const warnMsg = '[PlaywrightBrowserRuntime] Servidor X11 ausente. Iniciando Interactive Browser em modo headless como fallback.';
+      this.interactiveBrowser.on('disconnected', () => {
+        const pidActive = interactivePid ? isPidAlive(interactivePid) : false;
+        const warnMsg = `[PlaywrightBrowserRuntime] [EVENT disconnected] runtimeId=${this.runtimeId} Interactive Browser desconectou. Timestamp: ${new Date().toISOString()}, PID: ${interactivePid}, PID Ativo: ${pidActive}, Stack: ${new Error().stack}`;
         if (this.logger.warn) {
           this.logger.warn(warnMsg);
         } else {
           this.logger.info(warnMsg);
         }
-        this.interactiveBrowser = await chromium.launch({
-          headless: true
-        });
-        this.logger.info('[PlaywrightBrowserRuntime] Interactive Browser (headless) iniciado com sucesso como fallback.');
-      } else {
-        this.logger.error('[PlaywrightBrowserRuntime] Falha ao iniciar Interactive Browser (headful)', err);
-        throw err;
-      }
+      });
+    } else {
+      this.logger.info('[PlaywrightBrowserRuntime] Interactive Browser está desabilitado (INTERACTIVE_BROWSER_ENABLED=false).');
     }
-
-    const interactivePid = (this.interactiveBrowser as any).process?.()?.pid;
-    this.logger.info(`[PlaywrightBrowserRuntime] [start] runtimeId=${this.runtimeId} Interactive Browser criado. PID: ${interactivePid}, Versão: ${this.interactiveBrowser.version()}, Conectado: ${this.interactiveBrowser.isConnected()}`);
-    
-    this.interactiveBrowser.on('disconnected', () => {
-      const pidActive = interactivePid ? isPidAlive(interactivePid) : false;
-      const warnMsg = `[PlaywrightBrowserRuntime] [EVENT disconnected] runtimeId=${this.runtimeId} Interactive Browser desconectou. Timestamp: ${new Date().toISOString()}, PID: ${interactivePid}, PID Ativo: ${pidActive}, Stack: ${new Error().stack}`;
-      if (this.logger.warn) {
-        this.logger.warn(warnMsg);
-      } else {
-        this.logger.info(warnMsg);
-      }
-    });
 
     // Iniciar Worker Browser (headless)
     try {
@@ -121,6 +127,9 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
   public getInteractiveBrowser(): Browser {
     // LOG TEMPORÁRIO
     this.logger.info(`[PlaywrightBrowserRuntime] [getInteractiveBrowser] runtimeId=${this.runtimeId} interactiveBrowser === null: ${this.interactiveBrowser === null}, isConnected: ${this.interactiveBrowser ? this.interactiveBrowser.isConnected() : 'N/A'}`);
+    if (process.env.INTERACTIVE_BROWSER_ENABLED === 'false') {
+      throw new Error('INTERACTIVE_AUTHENTICATION_UNAVAILABLE');
+    }
     if (!this.interactiveBrowser) {
       throw new Error('Interactive Browser não foi inicializado ou já foi encerrado.');
     }

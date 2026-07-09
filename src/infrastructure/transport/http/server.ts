@@ -187,9 +187,15 @@ const PORT = Number(process.env.PORT) || 3006;
 const HOST = process.env.HOST || '0.0.0.0';
 
 const start = async () => {
+  let runtimeStarted = false;
+  let schedulerStarted = false;
+
   try {
     await browserRuntime.start();
+    runtimeStarted = true;
+
     authenticationCleanupScheduler.start();
+    schedulerStarted = true;
 
     await fastify.ready();
 
@@ -204,7 +210,22 @@ const start = async () => {
 
     fastify.log.info(`Servidor escutando em http://${HOST}:${PORT}`);
   } catch (err) {
-    fastify.log.error(err);
+    fastify.log.error(err, 'Erro fatal no bootstrap do servidor. Iniciando limpeza de recursos...');
+    
+    if (schedulerStarted) {
+      try {
+        authenticationCleanupScheduler.stop();
+      } catch (e) {}
+    }
+    if (runtimeStarted) {
+      try {
+        await browserRuntime.shutdown();
+      } catch (e) {}
+    }
+    try {
+      await fastify.close();
+    } catch (e) {}
+
     process.exit(1);
   }
 };

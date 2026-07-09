@@ -5,7 +5,17 @@ export class SecureCryptoHelper {
   private activeKeyId: string = '';
 
   constructor(keysConfig?: string) {
-    const config = keysConfig || process.env.SESSION_ENCRYPTION_KEYS || process.env.SESSION_ENCRYPTION_KEY || 'default:dev-fallback-key-change-this-in-prod';
+    const envKey = process.env.SESSION_ENCRYPTION_KEYS || process.env.SESSION_ENCRYPTION_KEY;
+    const isProduction = process.env.NODE_ENV === 'production';
+    
+    if (isProduction) {
+      const activeKey = keysConfig || envKey;
+      if (!activeKey || activeKey === 'default:dev-fallback-key-change-this-in-prod' || activeKey.includes('dev-fallback-key-change-this-in-prod')) {
+        throw new Error('[SecureCryptoHelper] Chave de criptografia de sessão ausente ou insegura em ambiente de produção.');
+      }
+    }
+
+    const config = keysConfig || envKey || 'default:dev-fallback-key-change-this-in-prod';
     this.parseKeys(config);
   }
 

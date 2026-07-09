@@ -88,11 +88,12 @@ export async function profileRoutes(
       });
     } catch (err: any) {
       fastify.log.error(err, `Erro ao disparar autenticação para ${marketplace}/${profile}`);
-      return reply.status(500).send({
+      const isUnavailable = err.message === 'INTERACTIVE_AUTHENTICATION_UNAVAILABLE' || err.message.includes('INTERACTIVE_AUTHENTICATION_UNAVAILABLE');
+      return reply.status(isUnavailable ? 400 : 500).send({
         success: false,
         error: {
-          code: 'AUTHENTICATION_INIT_FAILED',
-          message: err.message
+          code: isUnavailable ? 'INTERACTIVE_AUTHENTICATION_UNAVAILABLE' : 'AUTHENTICATION_INIT_FAILED',
+          message: isUnavailable ? 'O navegador interativo está desabilitado neste ambiente servidor.' : err.message
         }
       });
     }

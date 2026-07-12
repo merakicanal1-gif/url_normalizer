@@ -28,52 +28,24 @@ export class NormalizeService {
   ): Promise<NormalizedProduct> {
     console.log(`----------------------------------\n[NormalizeService] originalUrl="${originalUrlString}" profileId="${profileId || 'undefined'}"\n----------------------------------`);
 
-    // 1. Resolver redirecionamentos iniciais via CompositeUrlResolver
+    // 1. Identificar o marketplace inicial estimado a partir da URL original
     const originalUrl = new URL(originalUrlString);
-    const resolved = await this.urlResolver.resolve(originalUrl, this.defaultTimeoutMs, profileId);
-    const finalUrl = new URL(resolved.finalUrl);
-    console.log(`[NormalizeService] resolvedUrl="${resolved.finalUrl}" resolver="${resolved.metadata.resolver}"`);
-
-    // Identificar o marketplace inicial para carregar o perfil de autenticação correto
     let initialMarketplace = 'generic';
-    if (MarketplaceHostRegistry.isAmazon(finalUrl.hostname)) {
+    if (MarketplaceHostRegistry.isAmazon(originalUrl.hostname) || MarketplaceHostRegistry.isAmazonAffiliate(originalUrl.hostname)) {
       initialMarketplace = 'amazon';
-    } else if (MarketplaceHostRegistry.isMercadoLivre(finalUrl.hostname)) {
+    } else if (MarketplaceHostRegistry.isMercadoLivre(originalUrl.hostname) || MarketplaceHostRegistry.isMercadoLivreAffiliate(originalUrl.hostname)) {
       initialMarketplace = 'mercadolivre';
-    } else if (MarketplaceHostRegistry.isShopee(finalUrl.hostname)) {
+    } else if (MarketplaceHostRegistry.isShopee(originalUrl.hostname) || MarketplaceHostRegistry.isShopeeAffiliate(originalUrl.hostname)) {
       initialMarketplace = 'shopee';
     }
 
-    // Tentar resolver plugin inicial estimado
-    let pluginInicialInfo = 'fallback/desconhecido';
-    try {
-      const pluginInicial = this.registry.resolve(finalUrl);
-      pluginInicialInfo = pluginInicial.constructor.name;
-    } catch (e) {}
-
-    console.log(`[NormalizeService] pluginInicial="${pluginInicialInfo}" marketplaceInicial="${initialMarketplace}"`);
-
-    // 3. Publicar evento NORMALIZATION_STARTED
-    this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      event: 'NORMALIZATION_STARTED',
-      version: 1,
-      occurredAt: new Date().toISOString(),
-      source: 'NormalizeService',
-      traceId: traceId || null,
-      requestId: requestId || null,
-      sessionId: null,
-      marketplace: initialMarketplace,
-      profileId: profileId || null,
-      payload: {
-        url: originalUrlString,
-        marketplace: initialMarketplace,
-        profileId
-      }
-    });
-
-    // 4. Solicitar sessão worker ao PlaywrightBrowserSessionFactory
+    // 2. Solicitar sessão worker ao PlaywrightBrowserSessionFactory imediatamente
     const session = await this.sessionFactory.createSession(initialMarketplace, profileId);
+
+    // Logs temporários de diagnóstico (Audit)
+    const rawPage = (session.page as any).getRawPage?.();
+    const cookies = rawPage ? await rawPage.context().cookies() : [];
+    console.log(`[DIAGNOSTIC] [NormalizeService] marketplaceRecebido="${initialMarketplace}" profileId="${profileId || 'undefined'}" urlInicial="${originalUrlString}" BrowserContextReutilizadoOuCriado=true storageStateCarregado=${cookies.length > 0} cookiesCarregados=${cookies.length}`);
 
     if (profileId) {
       this.eventBus.publish({
@@ -95,18 +67,71 @@ export class NormalizeService {
       });
     }
 
+    // 3. Publicar evento NORMALIZATION_STARTED
+    this.eventBus.publish({
+      eventId: crypto.randomUUID(),
+      event: 'NORMALIZATION_STARTED',
+      version: 1,
+      occurredAt: new Date().toISOString(),
+      source: 'NormalizeService',
+      traceId: traceId || null,
+      requestId: requestId || null,
+      sessionId: null,
+      marketplace: initialMarketplace,
+      profileId: profileId || null,
+      payload: {
+        url: originalUrlString,
+        marketplace: initialMarketplace,
+        profileId
+      }
+    });
+
     const startTime = performance.now();
+    let activeSession = session;
+
     try {
-      // 5. Navegar para a URL resolvida
-      await session.page.goto(finalUrl.toString(), this.defaultTimeoutMs);
+      // 4. Resolver redirecionamentos iniciais reutilizando a mesma sessão/página autenticada
+      const resolved = await this.urlResolver.resolve(originalUrl, this.defaultTimeoutMs, profileId, session.page);
+      const finalUrl = new URL(resolved.finalUrl);
+      console.log(`[NormalizeService] resolvedUrl="${resolved.finalUrl}" resolver="${resolved.metadata.resolver}"`);
+      console.log(`[DIAGNOSTIC] [NormalizeService] marketplaceUtilizadoPeloRedirectResolver="${resolved.metadata.resolver === 'PlaywrightRedirectResolver' ? initialMarketplace : 'none'}"`);
+
+      // Identificar o marketplace final a partir da URL resolvida
+      let finalMarketplace = 'generic';
+      if (MarketplaceHostRegistry.isAmazon(finalUrl.hostname)) {
+        finalMarketplace = 'amazon';
+      } else if (MarketplaceHostRegistry.isMercadoLivre(finalUrl.hostname)) {
+        finalMarketplace = 'mercadolivre';
+      } else if (MarketplaceHostRegistry.isShopee(finalUrl.hostname)) {
+        finalMarketplace = 'shopee';
+      }
+
+      // Se o resolvedor redirecionou para um marketplace diferente do estimado inicialmente,
+      // recriamos a sessão para o marketplace correto para carregar suas respectivas credenciais.
+      if (finalMarketplace !== initialMarketplace) {
+        console.log(`[DIAGNOSTIC] [NormalizeService] Mudança de marketplace detectada: ${initialMarketplace} -> ${finalMarketplace}. Recriando sessão...`);
+        await session.dispose().catch(() => {});
+        activeSession = await this.sessionFactory.createSession(finalMarketplace, profileId);
+        
+        const newRawPage = (activeSession.page as any).getRawPage?.();
+        const newCookies = newRawPage ? await newRawPage.context().cookies() : [];
+        console.log(`[DIAGNOSTIC] [NormalizeService] NovoBrowserContextCriado=true storageStateCarregado=${newCookies.length > 0} cookiesCarregados=${newCookies.length}`);
+      }
+
+      // 5. Garantir que a página do activeSession está na URL final resolvida
+      const currentUrlStr = activeSession.page.getFinalUrl();
+      if (currentUrlStr !== resolved.finalUrl) {
+        await activeSession.page.goto(resolved.finalUrl, this.defaultTimeoutMs);
+      }
 
       // Obter a URL real final da navegação na página (após redirecionamentos via JS/Client)
-      const actualFinalUrlStr = session.page.getFinalUrl();
+      const actualFinalUrlStr = activeSession.page.getFinalUrl();
       const actualFinalUrl = new URL(actualFinalUrlStr);
 
-      const pageUrlStr = (session.page as any).page?.url?.() || (session.page as any).getRawPage?.()?.url?.() || actualFinalUrlStr;
+      const pageUrlStr = (activeSession.page as any).page?.url?.() || (activeSession.page as any).getRawPage?.()?.url?.() || actualFinalUrlStr;
       console.log(`[NormalizeService] page.url()="${pageUrlStr}" page.getFinalUrl()="${actualFinalUrlStr}" São iguais?=${pageUrlStr === actualFinalUrlStr}`);
       console.log(`[NormalizeService] urlUsadaParaDetectarMarketplace="${actualFinalUrlStr}"`);
+      console.log(`[DIAGNOSTIC] [NormalizeService] urlFinal="${actualFinalUrlStr}"`);
 
       // Validar se o host final de fato pertence a um marketplace suportado
       if (!MarketplaceHostRegistry.isKnownMarketplace(actualFinalUrl.hostname)) {
@@ -119,7 +144,7 @@ export class NormalizeService {
       console.log(`[NormalizeService] marketplaceFinal="${marketplace}" pluginFinal="${plugin.constructor.name}"`);
 
       // 7. Executar extração polimórfica pelo plugin correspondente
-      const product = await plugin.normalize(session.page, actualFinalUrl);
+      const product = await plugin.normalize(activeSession.page, actualFinalUrl);
       console.log(`[NormalizeService] idProduto="${product.id_produto}" titulo="${product.titulo}" imagem="${product.imagem}" urlFinalResposta="${product.url_final}"`);
 
       const durationMs = Math.round(performance.now() - startTime);
@@ -259,7 +284,7 @@ export class NormalizeService {
       throw err;
     } finally {
       // 10. Sempre executar dispose() para liberar recursos
-      await session.dispose().catch(() => {});
+      await activeSession.dispose().catch(() => {});
     }
   }
 }

@@ -28,5 +28,5 @@ export interface ResolvedUrl {
 
 export interface IUrlResolver {
   canResolve(url: URL): boolean;
-  resolve(url: URL, timeoutMs?: number, profileId?: string): Promise<ResolvedUrl>;
+  resolve(url: URL, timeoutMs?: number, profileId?: string, sessionPage?: INavigatorPage): Promise<ResolvedUrl>;
 }

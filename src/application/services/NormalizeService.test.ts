@@ -97,10 +97,11 @@ test('NormalizeService unit & integration tests', async (t) => {
     assert.strictEqual(disposeCalled, true);
 
     // Validar publicação de eventos
-    assert.strictEqual(publishedEvents.length, 3);
+    assert.strictEqual(publishedEvents.length, 4);
     assert.strictEqual(publishedEvents[0].event, 'NORMALIZATION_STARTED');
-    assert.strictEqual(publishedEvents[1].event, 'NORMALIZATION_COMPLETED');
-    assert.strictEqual(publishedEvents[2].event, 'PRODUCT_EXTRACTED');
+    assert.strictEqual(publishedEvents[1].event, 'NORMALIZE_COMPLETED');
+    assert.strictEqual(publishedEvents[2].event, 'NORMALIZATION_COMPLETED');
+    assert.strictEqual(publishedEvents[3].event, 'PRODUCT_EXTRACTED');
   });
 
   await t.test('normalize usando perfil autenticado e carregando storageState correto', async () => {

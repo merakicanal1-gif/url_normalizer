@@ -23,6 +23,8 @@ import { AuthenticationRecommendedAction } from '../../domain/models/Authenticat
 import { IPageInspector, Cookie } from '../../domain/ports/IPageInspector.js';
 import { IApplicationEventBus, ApplicationEvent } from '../../domain/ports/IApplicationEventBus.js';
 import { ChallengeDetectedError } from '../../domain/errors/ChallengeDetectedError.js';
+import { PlaywrightProfileInspector } from '../../infrastructure/adapters/profile/PlaywrightProfileInspector.js';
+import { BrowserProfile } from '../../domain/models/BrowserProfile.js';
 import { NormalizeService } from './NormalizeService.js';
 import { MarketplaceRegistry } from '../registry/MarketplaceRegistry.js';
 
@@ -284,5 +286,82 @@ test('Subsistema de Perfis e Sessões - Testes Unitários e Integração', async
     const usedEvent = publishedEvents.find(evt => evt.event === 'PROFILE_USED');
     assert.ok(usedEvent);
     assert.strictEqual(usedEvent.profileId, profileId);
+  });
+
+  await t.test('6. Profile Inspector (PlaywrightProfileInspector) - Teste Unitário com Mocks', async (sub) => {
+    const mockPage = {
+      url: () => 'https://www.amazon.com.br/gp/css/homepage.html',
+      title: async () => 'Amazon Product Title',
+      waitForLoadState: async () => {},
+      goto: async () => 'https://www.amazon.com.br/gp/css/homepage.html',
+      context: () => ({
+        cookies: async () => []
+      })
+    };
+    
+    const mockContext = {
+      newPage: async () => mockPage,
+      close: async () => {}
+    };
+
+    const mockBrowser = {
+      newContext: async () => mockContext
+    };
+
+    const mockBrowserRuntime = {
+      getInteractiveBrowser: () => mockBrowser,
+      getWorkerBrowser: () => mockBrowser
+    } as any;
+
+    const mockContextFactory = {
+      createAuthenticatedContext: async () => mockContext,
+      createAnonymousContext: async () => mockContext,
+      disposeContext: async () => {}
+    } as any;
+
+    const mockProfile: BrowserProfile = {
+      locale: 'pt-BR',
+      userAgent: 'agent',
+      timezoneId: 'UTC',
+      viewport: { width: 100, height: 100 },
+      javaScriptEnabled: true
+    };
+
+    const mockRegistry = new MarketplaceRegistry();
+    const mockPlugin = {
+      canHandle: (url: URL) => url.hostname.includes('amazon'),
+      getMarketplaceName: () => 'amazon',
+      getInteractiveEntryUrl: () => 'https://signin',
+      getAuthenticationStrategy: () => new AmazonAuthenticationStrategy(),
+      normalize: async () => ({} as any)
+    };
+    mockRegistry.register(mockPlugin);
+
+    const inspector = new PlaywrightProfileInspector(
+      mockBrowserRuntime,
+      repository,
+      mockContextFactory,
+      cryptoHelper,
+      mockRegistry,
+      mockProfile,
+      { info: () => {}, error: () => {} }
+    );
+
+    // Salvar um perfil válido na base para podermos abri-lo
+    const mkt = 'amazon';
+    const profileId = 'test-inspector';
+    await profileManager.createProfile(mkt, profileId, 'test-inspector');
+    await profileManager.saveProfileState(mkt, profileId, { cookies: [{ name: 'test', value: '1', domain: 'amazon.com.br' }] });
+
+    // Executar inspect
+    const result = await inspector.inspect(mkt, profileId, 'https://www.amazon.com.br/gp/css/homepage.html', 'interactive');
+
+    assert.strictEqual(result.marketplace, mkt);
+    assert.strictEqual(result.profileId, profileId);
+    assert.strictEqual(result.storageStateLoaded, true);
+    assert.strictEqual(result.cookiesLoaded, 1);
+    assert.strictEqual(result.windowOpened, true);
+    assert.strictEqual(result.authenticated, false); // dependendo do detector mock
+    assert.strictEqual(result.detector.strategy, 'AmazonAuthenticationStrategy');
   });
 });

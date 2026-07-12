@@ -1,6 +1,7 @@
 import { IUrlResolver, ResolvedUrl } from '../../../domain/ports/IUrlResolver.js';
 import { MarketplaceHostRegistry } from '../../../domain/services/MarketplaceHostRegistry.js';
 import { followHttpRedirects } from './HttpResolverHelper.js';
+import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 
 export class ShopeeAffiliateResolver implements IUrlResolver {
   constructor(
@@ -11,7 +12,7 @@ export class ShopeeAffiliateResolver implements IUrlResolver {
     return MarketplaceHostRegistry.isShopeeAffiliate(url.hostname);
   }
 
-  public async resolve(url: URL, _timeoutMs?: number): Promise<ResolvedUrl> {
+  public async resolve(url: URL, _timeoutMs?: number, profileId?: string, sessionPage?: INavigatorPage): Promise<ResolvedUrl> {
     const start = performance.now();
     const urlString = url.toString();
     

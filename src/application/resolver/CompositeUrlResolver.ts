@@ -1,4 +1,5 @@
 import { IUrlResolver, ResolvedUrl } from '../../domain/ports/IUrlResolver.js';
+import { INavigatorPage } from '../../domain/ports/INavigator.js';
 
 export class CompositeUrlResolver implements IUrlResolver {
   constructor(
@@ -10,7 +11,7 @@ export class CompositeUrlResolver implements IUrlResolver {
     return true; // O orquestrador central pode gerenciar qualquer URL
   }
 
-  public async resolve(url: URL, timeoutMs?: number, profileId?: string): Promise<ResolvedUrl> {
+  public async resolve(url: URL, timeoutMs?: number, profileId?: string, sessionPage?: INavigatorPage): Promise<ResolvedUrl> {
     const start = performance.now();
     let currentUrl = url;
     let fallbackOccurred = false;
@@ -23,7 +24,7 @@ export class CompositeUrlResolver implements IUrlResolver {
         this.logger.info(`[CompositeUrlResolver] Tentando resolver URL via: ${resolver.constructor.name}`);
         
         try {
-          const result = await resolver.resolve(currentUrl, timeoutMs, profileId);
+          const result = await resolver.resolve(currentUrl, timeoutMs, profileId, sessionPage);
           console.log(`[CompositeUrlResolver] Resolver=${resolver.constructor.name}, outcome=${result.outcome}, finalUrl="${result.finalUrl}"`);
           
           if (result.outcome === 'RESOLVED') {

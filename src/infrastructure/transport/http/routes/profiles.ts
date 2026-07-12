@@ -6,6 +6,7 @@ import { ProfileImportService } from '../../../../application/services/ProfileIm
 import { ProfileValidationService } from '../../../../application/services/ProfileValidationService.js';
 import { AuthenticationSessionService } from '../../../../application/services/AuthenticationSessionService.js';
 import { AuthenticationHealthService } from '../../../../application/services/AuthenticationHealthService.js';
+import { IProfileInspector } from '../../../../domain/ports/IProfileInspector.js';
 
 export async function profileRoutes(
   fastify: FastifyInstance,
@@ -17,6 +18,7 @@ export async function profileRoutes(
     validationService?: ProfileValidationService;
     sessionService?: AuthenticationSessionService;
     healthService?: AuthenticationHealthService;
+    profileInspector?: IProfileInspector;
   }
 ) {
   const { 
@@ -26,7 +28,8 @@ export async function profileRoutes(
     importService,
     validationService,
     sessionService,
-    healthService
+    healthService,
+    profileInspector
   } = options;
 
   // Registrar parser para upload binário (.profile)
@@ -221,6 +224,30 @@ export async function profileRoutes(
       return reply.status(200).send({ success: true, data: result });
     } catch (err: any) {
       return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  // Novo endpoint de inspeção visual / diagnóstico de sessão de perfil
+  fastify.post('/profiles/:marketplace/:profile/open', async (request, reply) => {
+    const { marketplace, profile } = request.params as any;
+    const { url, browser } = (request.body as any) || {};
+
+    if (!profileInspector) {
+      return reply.status(501).send({ success: false, error: 'Profile inspector not configured.' });
+    }
+
+    try {
+      const result = await profileInspector.inspect(marketplace, profile, url, browser);
+      return reply.status(200).send({
+        success: true,
+        data: result
+      });
+    } catch (err: any) {
+      fastify.log.error(err, `Erro ao abrir visualmente o perfil ${marketplace}/${profile}`);
+      return reply.status(500).send({
+        success: false,
+        error: err.message
+      });
     }
   });
 }

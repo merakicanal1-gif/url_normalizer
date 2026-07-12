@@ -1,12 +1,13 @@
 import { IUrlResolver, ResolvedUrl } from '../../../domain/ports/IUrlResolver.js';
 import { MarketplaceHostRegistry } from '../../../domain/services/MarketplaceHostRegistry.js';
+import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 
 export class DirectMarketplaceResolver implements IUrlResolver {
   public canResolve(url: URL): boolean {
     return MarketplaceHostRegistry.isKnownMarketplace(url.hostname);
   }
 
-  public async resolve(url: URL, _timeoutMs?: number): Promise<ResolvedUrl> {
+  public async resolve(url: URL, _timeoutMs?: number, profileId?: string, sessionPage?: INavigatorPage): Promise<ResolvedUrl> {
     const urlString = url.toString();
     return {
       originalUrl: urlString,

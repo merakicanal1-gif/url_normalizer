@@ -57,6 +57,7 @@ import { ProfileIntegrityValidator } from '../../adapters/profile/ProfileIntegri
 import { AuthenticationHealthChecker } from '../../adapters/profile/AuthenticationHealthChecker.js';
 import { AuthenticationStatusResolver } from '../../adapters/profile/AuthenticationStatusResolver.js';
 import { AuthenticationSessionManager } from '../../adapters/profile/AuthenticationSessionManager.js';
+import { PlaywrightProfileInspector } from '../../adapters/profile/PlaywrightProfileInspector.js';
 
 // Serviços de Perfil
 import { ProfileExportService } from '../../../application/services/ProfileExportService.js';
@@ -192,6 +193,15 @@ const profileImporter = new EncryptedProfileImporter(profileRepository);
 const healthChecker = new AuthenticationHealthChecker(sessionFactory);
 const statusResolver = new AuthenticationStatusResolver(profileRepository, profileValidator);
 const sessionManager = new AuthenticationSessionManager(profileRepository);
+const profileInspector = new PlaywrightProfileInspector(
+  browserRuntime,
+  profileRepository,
+  contextFactory,
+  cryptoHelper,
+  marketplaceRegistry,
+  browserProfile,
+  fastify.log
+);
 
 // Instanciar serviços de aplicação de perfil
 const exportService = new ProfileExportService(profileExporter);
@@ -218,7 +228,8 @@ fastify.register(profileRoutes, {
   importService,
   validationService,
   sessionService,
-  healthService
+  healthService,
+  profileInspector
 });
 
 // 5. Hooks de Inicialização e Encerramento (Graceful Shutdown)

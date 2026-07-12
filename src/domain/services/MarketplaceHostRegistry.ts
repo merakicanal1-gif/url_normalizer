@@ -19,13 +19,23 @@ export class MarketplaceHostRegistry {
   ]);
 
   public static isAmazon(hostname: string): boolean {
-    const cleaned = hostname.toLowerCase().replace(/^www\./, '');
-    return this.AMAZON_HOSTS.has(cleaned);
+    const cleaned = hostname.toLowerCase();
+    for (const host of this.AMAZON_HOSTS) {
+      if (cleaned === host || cleaned.endsWith('.' + host)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public static isMercadoLivre(hostname: string): boolean {
-    const cleaned = hostname.toLowerCase().replace(/^www\./, '');
-    return this.MERCADO_LIVRE_HOSTS.has(cleaned);
+    const cleaned = hostname.toLowerCase();
+    for (const host of this.MERCADO_LIVRE_HOSTS) {
+      if (cleaned === host || cleaned.endsWith('.' + host)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   public static isShopee(hostname: string): boolean {

@@ -1,5 +1,6 @@
 import { IUrlResolver, ResolvedUrl } from '../../../domain/ports/IUrlResolver.js';
 import { IBrowserSessionFactory } from '../../../domain/ports/IBrowserSessionFactory.js';
+import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 
 export class PlaywrightRedirectResolver implements IUrlResolver {
   constructor(
@@ -11,16 +12,23 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
     return true; // Fallback final universal
   }
 
-  public async resolve(url: URL, timeoutMs?: number, profileId?: string): Promise<ResolvedUrl> {
+  public async resolve(url: URL, timeoutMs?: number, profileId?: string, sessionPage?: INavigatorPage): Promise<ResolvedUrl> {
     const start = performance.now();
     const urlString = url.toString();
-    this.logger.info(`[PlaywrightRedirectResolver] Tentando resolver via Playwright: ${urlString}`);
+    this.logger.info(`[PlaywrightRedirectResolver] Tentando resolver via Playwright: ${urlString} (sessionPage reusado: ${!!sessionPage})`);
 
-    // Solicita uma sessão worker genérica
-    const session = await this.sessionFactory.createSession('generic', profileId);
+    let pageToUse = sessionPage;
+    let sessionToDispose: any = null;
+
+    if (!pageToUse) {
+      this.logger.info(`[PlaywrightRedirectResolver] Nenhum sessionPage ativo fornecido. Criando nova sessão worker 'generic'.`);
+      const session = await this.sessionFactory.createSession('generic', profileId);
+      pageToUse = session.page;
+      sessionToDispose = session;
+    }
 
     try {
-      const finalUrlStr = await session.page.goto(urlString, timeoutMs);
+      const finalUrlStr = await pageToUse.goto(urlString, timeoutMs);
       const durationMs = Math.round(performance.now() - start);
 
       this.logger.info(`[PlaywrightRedirectResolver] Concluído via Playwright em ${durationMs}ms. URL final: ${finalUrlStr}`);
@@ -72,7 +80,9 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
         }
       };
     } finally {
-      await session.dispose().catch(() => {});
+      if (sessionToDispose) {
+        await sessionToDispose.dispose().catch(() => {});
+      }
     }
   }
 }

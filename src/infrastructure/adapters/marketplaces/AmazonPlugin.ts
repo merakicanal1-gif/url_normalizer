@@ -3,6 +3,8 @@ import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 import { NormalizedProduct } from '../../../domain/models/Product.js';
 import { ChallengeDetectedError } from '../../../domain/errors/ChallengeDetectedError.js';
 import { MarketplaceUnavailableError, MarketplacePageType } from '../../../domain/errors/MarketplaceUnavailableError.js';
+import { IAuthenticationStrategy } from '../../../domain/ports/IAuthenticationStrategy.js';
+import { AmazonAuthenticationStrategy } from './AmazonAuthenticationStrategy.js';
 import { Page } from 'playwright-core';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -11,6 +13,10 @@ export class AmazonPlugin implements IMarketplacePlugin {
   constructor(
     private logger: { info: (msg: string) => void; error: (msg: string, err?: any) => void }
   ) {}
+
+  public getAuthenticationStrategy(): IAuthenticationStrategy {
+    return new AmazonAuthenticationStrategy();
+  }
 
   public canHandle(url: URL): boolean {
     const res = /(^|\.)amazon\.(com|com\.br|es|it|fr|co\.uk)$/i.test(url.hostname);

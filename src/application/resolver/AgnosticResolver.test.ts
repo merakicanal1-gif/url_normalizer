@@ -36,7 +36,11 @@ test('Sprint 2.0.4 — Agnostic resolver and NormalizeService integrations', asy
     canHandle: (url) => url.hostname.includes('amazon'),
     getMarketplaceName: () => 'amazon',
     getInteractiveEntryUrl: () => 'https://www.amazon.com.br/gp/sign-in.html',
-    normalize: async () => mockProduct
+    normalize: async () => mockProduct,
+    getAuthenticationStrategy: () => ({
+      getValidationUrl: () => 'about:blank',
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' })
+    })
   };
 
   const mockRegistry = new MarketplaceRegistry();

@@ -24,7 +24,11 @@ test('AuthenticationService unit tests', async (t) => {
     canHandle: (url: URL) => url.hostname.includes('amazon'),
     getMarketplaceName: () => 'amazon',
     getInteractiveEntryUrl: () => 'https://www.amazon.com/ap/signin',
-    normalize: async () => ({} as any)
+    normalize: async () => ({} as any),
+    getAuthenticationStrategy: () => ({
+      getValidationUrl: () => 'about:blank',
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' as const })
+    })
   };
 
   const marketplaceRegistry = new MarketplaceRegistry();

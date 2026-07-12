@@ -3,12 +3,16 @@ import { NormalizeService } from '../../../../application/services/NormalizeServ
 import { normalizeSchema } from '../schemas/normalizeSchema.js';
 import { ChallengeDetectedError } from '../../../../domain/errors/ChallengeDetectedError.js';
 import { MarketplaceUnavailableError } from '../../../../domain/errors/MarketplaceUnavailableError.js';
+import { IAuthenticationStatusResolver } from '../../../../domain/ports/IAuthenticationStatusResolver.js';
 
 export async function normalizeRoutes(
   fastify: FastifyInstance,
-  options: { normalizeService: NormalizeService }
+  options: { 
+    normalizeService: NormalizeService;
+    statusResolver?: IAuthenticationStatusResolver;
+  }
 ) {
-  const { normalizeService } = options;
+  const { normalizeService, statusResolver } = options;
 
   fastify.post('/normalize', async (request, reply) => {
     // 1. Validar entrada utilizando Zod de forma explícita
@@ -72,6 +76,9 @@ export async function normalizeRoutes(
       if (error instanceof ChallengeDetectedError) {
         statusCode = 403; // Forbidden
         errorCode = `CHALLENGE_${error.type}`;
+        if (error.type === 'LOGIN') {
+          errorCode = 'SESSION_EXPIRED';
+        }
       } else if (error instanceof MarketplaceUnavailableError) {
         statusCode = 503; // Service Unavailable
         errorCode = 'MARKETPLACE_ERROR_PAGE';
@@ -92,12 +99,38 @@ export async function normalizeRoutes(
         errorCode = 'NAVIGATION_ERROR';
       }
 
+      // 5. Se um perfil de autenticação foi fornecido, anexar o bloco de status
+      let authBlock: any = undefined;
+      if (profileId && statusResolver) {
+        try {
+          let mkt = 'generic';
+          const targetUrl = new URL(url);
+          if (targetUrl.hostname.includes('amazon')) mkt = 'amazon';
+          else if (targetUrl.hostname.includes('mercadolivre') || targetUrl.hostname.includes('mercadolibre') || targetUrl.hostname.includes('meli.la')) mkt = 'mercadolivre';
+          else if (targetUrl.hostname.includes('shopee')) mkt = 'shopee';
+
+          const diag = await statusResolver.resolveStatus(mkt, profileId);
+          authBlock = {
+            marketplace: diag.marketplace,
+            profileId: diag.profileId,
+            status: diag.status,
+            authenticated: diag.authenticated,
+            recommendedAction: diag.recommendedAction,
+            lastSuccessfulNormalize: diag.lastSuccessfulNormalize,
+            profileVersion: diag.profileVersion
+          };
+        } catch (e) {
+          // Ignorar erros na resolução do bloco
+        }
+      }
+
       return reply.status(statusCode).send({
         success: false,
         error: {
           code: errorCode,
           message: error.message || 'Erro desconhecido durante a navegação.'
         },
+        authentication: authBlock,
         execution: {
           duration_ms: durationMs
         }

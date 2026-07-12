@@ -30,6 +30,10 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
       id_produto: 'B0CX123456',
       titulo: 'Amazon Product Title',
       imagem: 'https://images.amazon.com/product.jpg'
+    }),
+    getAuthenticationStrategy: () => ({
+      getValidationUrl: () => 'about:blank',
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' })
     })
   };
 
@@ -44,6 +48,10 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
       id_produto: '',
       titulo: 'Generic Title',
       imagem: ''
+    }),
+    getAuthenticationStrategy: () => ({
+      getValidationUrl: () => 'about:blank',
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' })
     })
   };
 

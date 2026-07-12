@@ -1,12 +1,15 @@
 import { IProfileManager } from '../../domain/ports/IProfileManager.js';
 import { IProfileRepository } from '../../domain/ports/IProfileRepository.js';
 import { ISessionLock } from '../../domain/ports/ISessionLock.js';
+import { IApplicationEventBus } from '../../domain/ports/IApplicationEventBus.js';
+import * as crypto from 'node:crypto';
 
 export class ProfileManager implements IProfileManager {
   constructor(
     private repository: IProfileRepository,
     private lockManager: ISessionLock,
-    private logger: { info: (msg: string) => void; error: (msg: string, err?: any) => void }
+    private logger: { info: (msg: string) => void; error: (msg: string, err?: any) => void },
+    private eventBus?: IApplicationEventBus
   ) {}
 
   public async getProfile(marketplace: string, profileId: string): Promise<any | null> {
@@ -40,6 +43,26 @@ export class ProfileManager implements IProfileManager {
     };
 
     await this.repository.save(marketplace, profileId, metadata, null);
+
+    if (this.eventBus) {
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        event: 'PROFILE_CREATED',
+        version: 1,
+        occurredAt: new Date().toISOString(),
+        source: 'ProfileManager',
+        traceId: null,
+        requestId: null,
+        sessionId: null,
+        marketplace: marketplace.toLowerCase(),
+        profileId,
+        payload: {
+          marketplace: marketplace.toLowerCase(),
+          profileId,
+          createdBy: createdBy || 'system'
+        }
+      });
+    }
 
     return {
       id: profileId,

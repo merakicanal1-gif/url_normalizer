@@ -1,10 +1,14 @@
 import * as crypto from 'node:crypto';
+import { execSync } from 'node:child_process';
 import { IUrlResolver } from '../../domain/ports/IUrlResolver.js';
 import { MarketplaceRegistry } from '../registry/MarketplaceRegistry.js';
 import { NormalizedProduct } from '../../domain/models/Product.js';
 import { IBrowserSessionFactory } from '../../domain/ports/IBrowserSessionFactory.js';
 import { IApplicationEventBus } from '../../domain/ports/IApplicationEventBus.js';
 import { MarketplaceHostRegistry } from '../../domain/services/MarketplaceHostRegistry.js';
+import { IAuthenticationSessionManager } from '../../domain/ports/IAuthenticationSessionManager.js';
+import { ChallengeDetectedError } from '../../domain/errors/ChallengeDetectedError.js';
+import { SessionStatus } from '../../domain/models/AuthenticationSessionStatus.js';
 
 export class NormalizeService {
   constructor(
@@ -12,6 +16,7 @@ export class NormalizeService {
     private registry: MarketplaceRegistry,
     private sessionFactory: IBrowserSessionFactory,
     private eventBus: IApplicationEventBus,
+    private sessionManager?: IAuthenticationSessionManager,
     private defaultTimeoutMs: number = 30000
   ) {}
 
@@ -70,6 +75,26 @@ export class NormalizeService {
     // 4. Solicitar sessão worker ao PlaywrightBrowserSessionFactory
     const session = await this.sessionFactory.createSession(initialMarketplace, profileId);
 
+    if (profileId) {
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        event: 'PROFILE_USED',
+        version: 1,
+        occurredAt: new Date().toISOString(),
+        source: 'NormalizeService',
+        traceId: traceId || null,
+        requestId: requestId || null,
+        sessionId: null,
+        marketplace: initialMarketplace,
+        profileId,
+        payload: {
+          marketplace: initialMarketplace,
+          profileId,
+          success: true
+        }
+      });
+    }
+
     const startTime = performance.now();
     try {
       // 5. Navegar para a URL resolvida
@@ -99,7 +124,30 @@ export class NormalizeService {
 
       const durationMs = Math.round(performance.now() - startTime);
 
-      // 8. Publicar evento NORMALIZATION_COMPLETED
+      if (profileId && this.sessionManager) {
+        await this.sessionManager.updateUsage(marketplace, profileId, true);
+      }
+
+      // Publicar evento NORMALIZE_COMPLETED
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        event: 'NORMALIZE_COMPLETED',
+        version: 1,
+        occurredAt: new Date().toISOString(),
+        source: 'NormalizeService',
+        traceId: traceId || null,
+        requestId: requestId || null,
+        sessionId: null,
+        marketplace,
+        profileId: profileId || null,
+        payload: {
+          url: originalUrlString,
+          marketplace,
+          durationMs
+        }
+      });
+
+      // 8. Publicar evento NORMALIZATION_COMPLETED (retrocompatibilidade)
       this.eventBus.publish({
         eventId: crypto.randomUUID(),
         event: 'NORMALIZATION_COMPLETED',
@@ -138,6 +186,57 @@ export class NormalizeService {
 
       return product;
     } catch (err: any) {
+      if (profileId && this.sessionManager) {
+        let status: SessionStatus = 'UNKNOWN';
+        if (err instanceof ChallengeDetectedError) {
+          if (err.type === 'LOGIN') {
+            status = 'LOGIN_REQUIRED';
+            this.eventBus.publish({
+              eventId: crypto.randomUUID(),
+              event: 'LOGIN_REQUIRED',
+              version: 1,
+              occurredAt: new Date().toISOString(),
+              source: 'NormalizeService',
+              traceId: traceId || null,
+              requestId: requestId || null,
+              sessionId: null,
+              marketplace: initialMarketplace,
+              profileId,
+              payload: { marketplace: initialMarketplace, profileId, reason: err.message }
+            });
+            this.eventBus.publish({
+              eventId: crypto.randomUUID(),
+              event: 'SESSION_EXPIRED',
+              version: 1,
+              occurredAt: new Date().toISOString(),
+              source: 'NormalizeService',
+              traceId: traceId || null,
+              requestId: requestId || null,
+              sessionId: null,
+              marketplace: initialMarketplace,
+              profileId,
+              payload: { marketplace: initialMarketplace, profileId, reason: 'Session expired, login required' }
+            });
+          } else if (err.type === 'CAPTCHA' || err.type === 'WAF') {
+            status = 'CAPTCHA_REQUIRED';
+            this.eventBus.publish({
+              eventId: crypto.randomUUID(),
+              event: 'CAPTCHA_REQUIRED',
+              version: 1,
+              occurredAt: new Date().toISOString(),
+              source: 'NormalizeService',
+              traceId: traceId || null,
+              requestId: requestId || null,
+              sessionId: null,
+              marketplace: initialMarketplace,
+              profileId,
+              payload: { marketplace: initialMarketplace, profileId, reason: err.message }
+            });
+          }
+        }
+        await this.sessionManager.updateUsage(initialMarketplace, profileId, false, status, err.message);
+      }
+
       // Publicar evento NORMALIZATION_FAILED caso falhe
       this.eventBus.publish({
         eventId: crypto.randomUUID(),

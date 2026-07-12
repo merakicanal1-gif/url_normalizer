@@ -1,8 +1,14 @@
 import { IMarketplacePlugin } from '../../../domain/ports/IMarketplacePlugin.js';
 import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 import { NormalizedProduct } from '../../../domain/models/Product.js';
+import { IAuthenticationStrategy } from '../../../domain/ports/IAuthenticationStrategy.js';
+import { GenericAuthenticationStrategy } from './GenericAuthenticationStrategy.js';
 
 export class GenericPlugin implements IMarketplacePlugin {
+  public getAuthenticationStrategy(): IAuthenticationStrategy {
+    return new GenericAuthenticationStrategy();
+  }
+
   public canHandle(url: URL): boolean {
     // Retorna false pois é o plugin de fallback definitivo
     console.log(`[GenericPlugin] [canHandle] URL="${url.toString()}", Resultado=false (é o fallback)`);

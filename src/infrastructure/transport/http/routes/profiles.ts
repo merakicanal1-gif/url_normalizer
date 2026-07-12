@@ -1,15 +1,40 @@
 import { FastifyInstance } from 'fastify';
 import { IProfileManager } from '../../../../domain/ports/IProfileManager.js';
 import { AuthenticationService } from '../../../../application/services/AuthenticationService.js';
+import { ProfileExportService } from '../../../../application/services/ProfileExportService.js';
+import { ProfileImportService } from '../../../../application/services/ProfileImportService.js';
+import { ProfileValidationService } from '../../../../application/services/ProfileValidationService.js';
+import { AuthenticationSessionService } from '../../../../application/services/AuthenticationSessionService.js';
+import { AuthenticationHealthService } from '../../../../application/services/AuthenticationHealthService.js';
 
 export async function profileRoutes(
   fastify: FastifyInstance,
   options: {
     profileManager: IProfileManager;
     authenticationService: AuthenticationService;
+    exportService?: ProfileExportService;
+    importService?: ProfileImportService;
+    validationService?: ProfileValidationService;
+    sessionService?: AuthenticationSessionService;
+    healthService?: AuthenticationHealthService;
   }
 ) {
-  const { profileManager, authenticationService } = options;
+  const { 
+    profileManager, 
+    authenticationService,
+    exportService,
+    importService,
+    validationService,
+    sessionService,
+    healthService
+  } = options;
+
+  // Registrar parser para upload binário (.profile)
+  if (!fastify.hasContentTypeParser('application/octet-stream')) {
+    fastify.addContentTypeParser('application/octet-stream', { parseAs: 'buffer' }, (req, body, done) => {
+      done(null, body);
+    });
+  }
 
   fastify.post('/sessions', async (request, reply) => {
     const { marketplace, profileId, createdBy } = request.body as any;
@@ -123,6 +148,79 @@ export async function profileRoutes(
           message: err.message
         }
       });
+    }
+  });
+
+  // Novos endpoints do subsistema profissional de perfis e sessões
+
+  fastify.get('/profiles/:marketplace/:profile/export', async (request, reply) => {
+    const { marketplace, profile } = request.params as any;
+    if (!exportService) {
+      return reply.status(501).send({ success: false, error: 'Export service not configured.' });
+    }
+    try {
+      const buffer = await exportService.exportProfile(marketplace, profile);
+      return reply
+        .header('Content-Disposition', `attachment; filename="${marketplace.toLowerCase()}-${profile}.profile"`)
+        .header('Content-Type', 'application/octet-stream')
+        .send(buffer);
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  fastify.post('/profiles/import', async (request, reply) => {
+    if (!importService) {
+      return reply.status(501).send({ success: false, error: 'Import service not configured.' });
+    }
+    const buffer = request.body as Buffer;
+    if (!buffer || buffer.length === 0) {
+      return reply.status(400).send({ success: false, error: 'Request body must be a binary .profile file.' });
+    }
+    try {
+      const result = await importService.importProfile(buffer);
+      return reply.status(200).send({ success: true, data: result });
+    } catch (err: any) {
+      return reply.status(400).send({ success: false, error: err.message });
+    }
+  });
+
+  fastify.get('/profiles/:marketplace/:profile/status', async (request, reply) => {
+    const { marketplace, profile } = request.params as any;
+    if (!sessionService) {
+      return reply.status(501).send({ success: false, error: 'Session service not configured.' });
+    }
+    try {
+      const diagnostic = await sessionService.getDiagnostic(marketplace, profile);
+      return reply.status(200).send({ success: true, data: diagnostic });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  fastify.get('/profiles/:marketplace/:profile/validate', async (request, reply) => {
+    const { marketplace, profile } = request.params as any;
+    if (!validationService) {
+      return reply.status(501).send({ success: false, error: 'Validation service not configured.' });
+    }
+    try {
+      const result = await validationService.validateProfile(marketplace, profile);
+      return reply.status(200).send({ success: true, data: result });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
+    }
+  });
+
+  fastify.post('/profiles/:marketplace/:profile/refresh', async (request, reply) => {
+    const { marketplace, profile } = request.params as any;
+    if (!healthService) {
+      return reply.status(501).send({ success: false, error: 'Health service not configured.' });
+    }
+    try {
+      const result = await healthService.refreshSession(marketplace, profile);
+      return reply.status(200).send({ success: true, data: result });
+    } catch (err: any) {
+      return reply.status(500).send({ success: false, error: err.message });
     }
   });
 }

@@ -50,6 +50,21 @@ import { MercadoLivreProductExtractor } from '../../adapters/marketplaces/mercad
 import { PlaywrightBrowserLaunchPolicy } from '../../adapters/browser/PlaywrightBrowserLaunchPolicy.js';
 import { BrowserContextFactory } from '../../adapters/browser/BrowserContextFactory.js';
 
+// Adapters de Perfil
+import { EncryptedProfileExporter } from '../../adapters/profile/EncryptedProfileExporter.js';
+import { EncryptedProfileImporter } from '../../adapters/profile/EncryptedProfileImporter.js';
+import { ProfileIntegrityValidator } from '../../adapters/profile/ProfileIntegrityValidator.js';
+import { AuthenticationHealthChecker } from '../../adapters/profile/AuthenticationHealthChecker.js';
+import { AuthenticationStatusResolver } from '../../adapters/profile/AuthenticationStatusResolver.js';
+import { AuthenticationSessionManager } from '../../adapters/profile/AuthenticationSessionManager.js';
+
+// Serviços de Perfil
+import { ProfileExportService } from '../../../application/services/ProfileExportService.js';
+import { ProfileImportService } from '../../../application/services/ProfileImportService.js';
+import { ProfileValidationService } from '../../../application/services/ProfileValidationService.js';
+import { AuthenticationSessionService } from '../../../application/services/AuthenticationSessionService.js';
+import { AuthenticationHealthService } from '../../../application/services/AuthenticationHealthService.js';
+
 // Routes
 import { healthRoutes } from './routes/health.js';
 import { normalizeRoutes } from './routes/normalize.js';
@@ -107,7 +122,7 @@ eventTracer.start();
 const cryptoHelper = new SecureCryptoHelper();
 const profileRepository = new LocalFileProfileRepository(cryptoHelper);
 const lockManager = new MemorySessionLockManager();
-const profileManager = new ProfileManager(profileRepository, lockManager, fastify.log);
+const profileManager = new ProfileManager(profileRepository, lockManager, fastify.log, eventBus);
 
 // Configuração do perfil de navegador realista
 const browserProfile: BrowserProfile = {
@@ -170,12 +185,41 @@ const compositeUrlResolver = new CompositeUrlResolver(
   fastify.log
 );
 
-const normalizeService = new NormalizeService(compositeUrlResolver, marketplaceRegistry, sessionFactory, eventBus);
+// Instanciar adaptadores de perfil
+const profileValidator = new ProfileIntegrityValidator(profileRepository, cryptoHelper);
+const profileExporter = new EncryptedProfileExporter(profileRepository);
+const profileImporter = new EncryptedProfileImporter(profileRepository);
+const healthChecker = new AuthenticationHealthChecker(sessionFactory);
+const statusResolver = new AuthenticationStatusResolver(profileRepository, profileValidator);
+const sessionManager = new AuthenticationSessionManager(profileRepository);
+
+// Instanciar serviços de aplicação de perfil
+const exportService = new ProfileExportService(profileExporter);
+const importService = new ProfileImportService(profileImporter, profileValidator);
+const validationService = new ProfileValidationService(profileValidator);
+const sessionService = new AuthenticationSessionService(statusResolver);
+const healthService = new AuthenticationHealthService(marketplaceRegistry, healthChecker, sessionManager, statusResolver);
+
+const normalizeService = new NormalizeService(
+  compositeUrlResolver,
+  marketplaceRegistry,
+  sessionFactory,
+  eventBus,
+  sessionManager
+);
 
 // 4. Registro de Rotas
 fastify.register(healthRoutes, { browserRuntime });
-fastify.register(normalizeRoutes, { normalizeService });
-fastify.register(profileRoutes, { profileManager, authenticationService });
+fastify.register(normalizeRoutes, { normalizeService, statusResolver });
+fastify.register(profileRoutes, {
+  profileManager,
+  authenticationService,
+  exportService,
+  importService,
+  validationService,
+  sessionService,
+  healthService
+});
 
 // 5. Hooks de Inicialização e Encerramento (Graceful Shutdown)
 fastify.addHook('onClose', async () => {

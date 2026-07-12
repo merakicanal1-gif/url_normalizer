@@ -8,6 +8,8 @@ import { INavigationObserver } from '../../../domain/ports/INavigationObserver.j
 import { IProductPageValidator } from '../../../domain/ports/IProductPageValidator.js';
 import { IProductExtractor } from '../../../domain/ports/IProductExtractor.js';
 import { PageInspection } from '../../../domain/models/PageInspection.js';
+import { IAuthenticationStrategy } from '../../../domain/ports/IAuthenticationStrategy.js';
+import { MercadoLivreAuthenticationStrategy } from './MercadoLivreAuthenticationStrategy.js';
 import { Page } from 'playwright-core';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -35,6 +37,10 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
     private readonly productPageValidator: IProductPageValidator,
     private readonly productExtractor: IProductExtractor
   ) {}
+
+  public getAuthenticationStrategy(): IAuthenticationStrategy {
+    return new MercadoLivreAuthenticationStrategy();
+  }
 
   public canHandle(url: URL): boolean {
     const host = url.hostname.toLowerCase();

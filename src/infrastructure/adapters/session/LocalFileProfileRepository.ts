@@ -27,6 +27,13 @@ export class LocalFileProfileRepository implements IProfileRepository {
     await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf8');
   }
 
+  public async saveEncrypted(marketplace: string, profileId: string, metadata: any, storageStateEnc: string): Promise<void> {
+    const dir = path.join(this.baseDir, marketplace.toLowerCase(), profileId);
+    await fs.mkdir(dir, { recursive: true });
+    await fs.writeFile(path.join(dir, 'storageState.enc'), storageStateEnc, 'utf8');
+    await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf8');
+  }
+
   public async load(marketplace: string, profileId: string): Promise<{ metadata: any; storageState: any } | null> {
     const dir = path.join(this.baseDir, marketplace.toLowerCase(), profileId);
     const metaPath = path.join(dir, 'metadata.json');
@@ -45,6 +52,27 @@ export class LocalFileProfileRepository implements IProfileRepository {
       const storageState = JSON.parse(decrypted.plaintext);
 
       return { metadata, storageState };
+    } catch (err) {
+      return null;
+    }
+  }
+
+  public async loadEncrypted(marketplace: string, profileId: string): Promise<{ metadata: any; storageStateEnc: string } | null> {
+    const dir = path.join(this.baseDir, marketplace.toLowerCase(), profileId);
+    const metaPath = path.join(dir, 'metadata.json');
+    const encPath = path.join(dir, 'storageState.enc');
+
+    if (!fsSync.existsSync(metaPath) || !fsSync.existsSync(encPath)) {
+      return null;
+    }
+
+    try {
+      const metaContent = await fs.readFile(metaPath, 'utf8');
+      const metadata = JSON.parse(metaContent);
+
+      const storageStateEnc = await fs.readFile(encPath, 'utf8');
+
+      return { metadata, storageStateEnc };
     } catch (err) {
       return null;
     }

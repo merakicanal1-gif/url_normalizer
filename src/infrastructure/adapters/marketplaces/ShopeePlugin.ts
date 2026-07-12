@@ -3,6 +3,8 @@ import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 import { NormalizedProduct } from '../../../domain/models/Product.js';
 import { ChallengeDetectedError } from '../../../domain/errors/ChallengeDetectedError.js';
 import { MarketplaceUnavailableError, MarketplacePageType } from '../../../domain/errors/MarketplaceUnavailableError.js';
+import { IAuthenticationStrategy } from '../../../domain/ports/IAuthenticationStrategy.js';
+import { ShopeeAuthenticationStrategy } from './ShopeeAuthenticationStrategy.js';
 import { Page } from 'playwright-core';
 import * as path from 'path';
 
@@ -12,6 +14,10 @@ export class ShopeePlugin implements IMarketplacePlugin {
   constructor(
     private logger: { info: (msg: string) => void; error: (msg: string, err?: any) => void }
   ) {}
+
+  public getAuthenticationStrategy(): IAuthenticationStrategy {
+    return new ShopeeAuthenticationStrategy();
+  }
 
   public canHandle(url: URL): boolean {
     return MarketplaceHostRegistry.isShopee(url.hostname);

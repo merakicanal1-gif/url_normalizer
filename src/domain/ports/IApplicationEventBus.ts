@@ -22,6 +22,19 @@ export interface ApplicationEventPayloads {
 
   PAGE_NAVIGATED: { url: string };
   PRODUCT_EXTRACTED: { marketplace: string; id: string; price?: number };
+
+  // Novos eventos do subsistema de perfis e sessões
+  PROFILE_CREATED: { marketplace: string; profileId: string; createdBy: string };
+  PROFILE_EXPORTED: { marketplace: string; profileId: string; durationMs?: number };
+  PROFILE_IMPORTED: { marketplace: string; profileId: string; version: number };
+  PROFILE_VALIDATED: { marketplace: string; profileId: string; isValid: boolean; errors?: string[] };
+  PROFILE_REFRESHED: { marketplace: string; profileId: string; status: string; confidence: number };
+  PROFILE_CORRUPTED: { marketplace: string; profileId: string; reason: string };
+  SESSION_EXPIRED: { marketplace: string; profileId: string; reason?: string };
+  LOGIN_REQUIRED: { marketplace: string; profileId: string; reason?: string };
+  CAPTCHA_REQUIRED: { marketplace: string; profileId: string; reason?: string };
+  PROFILE_USED: { marketplace: string; profileId: string; success: boolean };
+  NORMALIZE_COMPLETED: { url: string; marketplace: string; durationMs: number };
 }
 
 export interface ApplicationEvent<T extends keyof ApplicationEventPayloads = any> {

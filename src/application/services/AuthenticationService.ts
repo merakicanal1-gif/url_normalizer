@@ -15,6 +15,7 @@ export class AuthenticationService {
     private marketplaceRegistry: MarketplaceRegistry,
     private profileManager: IProfileManager,
     private browserProfile: BrowserProfile,
+    private contextFactory: BrowserContextFactory,
     private logger: { info: (msg: string) => void; error: (msg: string, err?: any) => void }
   ) {
     this.logger.info(`[AuthenticationService] Inicializado com runtimeId=${(this.browserRuntime as any).runtimeId}`);
@@ -38,7 +39,6 @@ export class AuthenticationService {
     }
     this.logger.info(`[AuthenticationService] Iniciando fluxo de autenticação para ${marketplace}/${profileId}`);
 
-    // 1. Identificar o plugin do marketplace e obter a URL de login
     const plugin = this.marketplaceRegistry.getPlugins().find(
       p => p.getMarketplaceName() === marketplace.toLowerCase()
     );
@@ -53,14 +53,12 @@ export class AuthenticationService {
       throw new Error(`URL de login não definida para o marketplace: ${marketplace}`);
     }
 
-    // 2. Criar ou carregar o perfil de sessão se ele não existir (Auto-creation)
     let profile = await this.profileManager.getProfile(marketplace, profileId);
     if (!profile) {
       this.logger.info(`[AuthenticationService] Perfil ${profileId} não encontrado. Criando automaticamente...`);
       profile = await this.profileManager.createProfile(marketplace, profileId, 'system-auto');
     }
 
-    // 3. Obter o Interactive Browser Singleton
     let browser: any;
     try {
       browser = this.browserRuntime.getInteractiveBrowser();
@@ -69,13 +67,9 @@ export class AuthenticationService {
       throw new Error(`Serviço de navegador indisponível: ${err.message}`);
     }
 
-    // 4. Criar um novo BrowserContext através do BrowserContextFactory
-    const context = await BrowserContextFactory.createInteractiveContext(browser, this.browserProfile);
-    
-    // 5. Criar uma nova Page
+    const context = await this.contextFactory.createInteractiveContext(browser, this.browserProfile);
     const page = await context.newPage();
 
-    // 6. Navegar para a URL obtida do Plugin
     try {
       this.logger.info(`[AuthenticationService] Navegando para a página de login: ${entryUrl}`);
       await page.goto(entryUrl, {
@@ -85,11 +79,9 @@ export class AuthenticationService {
     } catch (err: any) {
       this.logger.error(`[AuthenticationService] Falha ao navegar para ${entryUrl}. Fechando recursos.`, err);
       
-      // Fechar imediatamente Page e BrowserContext
       await page.close().catch(() => {});
-      await BrowserContextFactory.disposeContext(context).catch(() => {});
+      await this.contextFactory.disposeContext(context).catch(() => {});
 
-      // Publicar AUTHENTICATION_FAILED
       this.eventBus.publish({
         eventId: crypto.randomUUID(),
         event: 'AUTHENTICATION_FAILED',
@@ -112,10 +104,9 @@ export class AuthenticationService {
       throw new Error(`Falha ao abrir a página de login: ${err.message}`);
     }
 
-    // 7. Se a navegação foi bem-sucedida, criar e registrar a sessão de autenticação
     const authenticationId = `auth_${crypto.randomUUID()}`;
     const startedAt = new Date();
-    const expiresAt = new Date(startedAt.getTime() + 15 * 60 * 1000); // 15 minutos de expiração
+    const expiresAt = new Date(startedAt.getTime() + 15 * 60 * 1000);
 
     const session: AuthenticationSession = {
       authenticationId,
@@ -128,10 +119,8 @@ export class AuthenticationService {
       status: 'WAITING_LOGIN'
     };
 
-    // Registrar no AuthenticationRegistry
     this.registry.register(authenticationId, session);
 
-    // Publicar AUTHENTICATION_STARTED
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
       event: 'AUTHENTICATION_STARTED',
@@ -150,7 +139,6 @@ export class AuthenticationService {
       }
     });
 
-    // Publicar PAGE_NAVIGATED
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
       event: 'PAGE_NAVIGATED',
@@ -167,7 +155,6 @@ export class AuthenticationService {
       }
     });
 
-    // 8. Retornar exatamente o contrato HTTP
     return {
       authenticationId,
       marketplace,
@@ -189,7 +176,6 @@ export class AuthenticationService {
   }> {
     this.logger.info(`[AuthenticationService] Finalizando autenticação para ${marketplace}/${profileId} com ID: ${authenticationId}`);
 
-    // 1. Localizar no Registry
     const session = this.registry.get(authenticationId);
     if (!session) {
       this.logger.error(`[AuthenticationService] Autenticação não encontrada: ${authenticationId}`);
@@ -198,7 +184,6 @@ export class AuthenticationService {
       throw err;
     }
 
-    // 2. Validar marketplace/profile
     if (
       session.marketplace.toLowerCase() !== marketplace.toLowerCase() ||
       session.profileId !== profileId
@@ -211,7 +196,6 @@ export class AuthenticationService {
 
     const { context, page } = session;
 
-    // 4. Obter o estado de armazenamento
     let storageState: any;
     try {
       storageState = await context.storageState();
@@ -220,18 +204,14 @@ export class AuthenticationService {
       throw err;
     }
 
-    // Obter versão do browser
     const browserVersion = context.browser()?.version() || 'unknown';
 
-    // 5. Persistir estado do perfil via ProfileManager
     await this.profileManager.saveProfileState(marketplace, profileId, storageState, browserVersion);
 
-    // Carregar perfil para obter a versão incrementada
     const profile = await this.profileManager.getProfile(marketplace, profileId);
     const profileVersion = profile?.metadata?.version || 1;
     const savedAt = new Date().toISOString();
 
-    // 8. Publicar PROFILE_SAVED
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
       event: 'PROFILE_SAVED',
@@ -250,7 +230,6 @@ export class AuthenticationService {
       }
     });
 
-    // Publicar AUTHENTICATION_COMPLETED
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
       event: 'AUTHENTICATION_COMPLETED',
@@ -269,14 +248,11 @@ export class AuthenticationService {
       }
     });
 
-    // 9. Fechar recursos
     await page.close().catch(() => {});
-    await BrowserContextFactory.disposeContext(context).catch(() => {});
+    await this.contextFactory.disposeContext(context).catch(() => {});
 
-    // 10. Remover do Registry
     this.registry.remove(authenticationId);
 
-    // 11. Retornar dados de sucesso
     return {
       success: true,
       profileVersion,

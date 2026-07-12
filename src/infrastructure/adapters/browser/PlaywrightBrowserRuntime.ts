@@ -1,5 +1,6 @@
 import { chromium, Browser } from 'playwright-core';
 import { IBrowserRuntime } from '../../../domain/ports/IBrowserRuntime.js';
+import { IBrowserLaunchPolicy } from '../../../domain/ports/IBrowserLaunchPolicy.js';
 import * as crypto from 'node:crypto';
 
 function isPidAlive(pid: number): boolean {
@@ -17,7 +18,8 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
   private interactiveBrowser: Browser | null = null;
 
   constructor(
-    private logger: { info: (msg: string) => void; warn?: (msg: string) => void; error: (msg: string, err?: any) => void }
+    private logger: { info: (msg: string) => void; warn?: (msg: string) => void; error: (msg: string, err?: any) => void },
+    private launchPolicy: IBrowserLaunchPolicy
   ) {
     this.logger.info(`[Runtime] created runtimeId=${this.runtimeId}`);
   }
@@ -25,13 +27,31 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
   public async start(): Promise<void> {
     this.logger.info('[PlaywrightBrowserRuntime] Inicializando runtimes de navegadores locais...');
     
+    // Obter políticas de inicialização
+    const workerPolicy = this.launchPolicy.getLaunchOptions('worker');
+    const interactivePolicy = this.launchPolicy.getLaunchOptions('interactive');
+
+    // Logs estruturados detalhando a política (sem expor credenciais/dados sensíveis)
+    const isStealth = process.env.PLAYWRIGHT_STEALTH !== 'false';
+    this.logger.info(`[PlaywrightBrowserRuntime] [LaunchPolicy] Ambiente: ${process.env.NODE_ENV || 'development'}`);
+    this.logger.info(`[PlaywrightBrowserRuntime] [LaunchPolicy] Stealth Enabled: ${isStealth}`);
+    this.logger.info(`[PlaywrightBrowserRuntime] [LaunchPolicy] Launch Args: ${JSON.stringify(workerPolicy.launchOptions.args)}`);
+    this.logger.info(`[PlaywrightBrowserRuntime] [LaunchPolicy] User Agent: ${workerPolicy.contextOptions.userAgent}`);
+    this.logger.info(`[PlaywrightBrowserRuntime] [LaunchPolicy] Locale: ${workerPolicy.contextOptions.locale}`);
+    this.logger.info(`[PlaywrightBrowserRuntime] [LaunchPolicy] Timezone: ${workerPolicy.contextOptions.timezoneId}`);
+    this.logger.info(`[PlaywrightBrowserRuntime] [LaunchPolicy] Viewport: ${JSON.stringify(workerPolicy.contextOptions.viewport)}`);
+
     const isInteractiveEnabled = process.env.INTERACTIVE_BROWSER_ENABLED !== 'false';
 
     if (isInteractiveEnabled) {
       // Iniciar Interactive Browser (headful com fallback para headless se sem X11)
       try {
         this.interactiveBrowser = await chromium.launch({
-          headless: false
+          headless: false,
+          args: interactivePolicy.launchOptions.args,
+          channel: interactivePolicy.launchOptions.channel,
+          executablePath: interactivePolicy.launchOptions.executablePath,
+          slowMo: interactivePolicy.launchOptions.slowMo
         });
         this.logger.info('[PlaywrightBrowserRuntime] Interactive Browser (headful) iniciado com sucesso.');
       } catch (err: any) {
@@ -47,7 +67,11 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
             this.logger.info(warnMsg);
           }
           this.interactiveBrowser = await chromium.launch({
-            headless: true
+            headless: true,
+            args: interactivePolicy.launchOptions.args,
+            channel: interactivePolicy.launchOptions.channel,
+            executablePath: interactivePolicy.launchOptions.executablePath,
+            slowMo: interactivePolicy.launchOptions.slowMo
           });
           this.logger.info('[PlaywrightBrowserRuntime] Interactive Browser (headless) iniciado com sucesso como fallback.');
         } else {
@@ -75,7 +99,11 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
     // Iniciar Worker Browser (headless)
     try {
       this.workerBrowser = await chromium.launch({
-        headless: true
+        headless: workerPolicy.launchOptions.headless,
+        args: workerPolicy.launchOptions.args,
+        channel: workerPolicy.launchOptions.channel,
+        executablePath: workerPolicy.launchOptions.executablePath,
+        slowMo: workerPolicy.launchOptions.slowMo
       });
       this.logger.info('[PlaywrightBrowserRuntime] Worker Browser (headless) iniciado com sucesso.');
     } catch (err: any) {
@@ -96,12 +124,10 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
       }
     });
 
-    // LOG TEMPORÁRIO
     this.logger.info(`[PlaywrightBrowserRuntime] [start] runtimeId=${this.runtimeId} workerBrowser criado: ${this.workerBrowser !== null}, interactiveBrowser criado: ${this.interactiveBrowser !== null}`);
   }
 
   public async shutdown(): Promise<void> {
-    // LOG TEMPORÁRIO
     this.logger.info(`[PlaywrightBrowserRuntime] [shutdown] runtimeId=${this.runtimeId} shutdown() chamado. Stack: ${new Error().stack}`);
     this.logger.info('[PlaywrightBrowserRuntime] Encerrando runtimes de navegadores...');
     if (this.interactiveBrowser) {
@@ -116,7 +142,6 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
   }
 
   public getWorkerBrowser(): Browser {
-    // LOG TEMPORÁRIO
     this.logger.info(`[PlaywrightBrowserRuntime] [getWorkerBrowser] runtimeId=${this.runtimeId} workerBrowser === null: ${this.workerBrowser === null}, isConnected: ${this.workerBrowser ? this.workerBrowser.isConnected() : 'N/A'}`);
     if (!this.workerBrowser) {
       throw new Error('Worker Browser não foi inicializado ou já foi encerrado.');
@@ -125,7 +150,6 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
   }
 
   public getInteractiveBrowser(): Browser {
-    // LOG TEMPORÁRIO
     this.logger.info(`[PlaywrightBrowserRuntime] [getInteractiveBrowser] runtimeId=${this.runtimeId} interactiveBrowser === null: ${this.interactiveBrowser === null}, isConnected: ${this.interactiveBrowser ? this.interactiveBrowser.isConnected() : 'N/A'}`);
     if (process.env.INTERACTIVE_BROWSER_ENABLED === 'false') {
       throw new Error('INTERACTIVE_AUTHENTICATION_UNAVAILABLE');
@@ -137,7 +161,6 @@ export class PlaywrightBrowserRuntime implements IBrowserRuntime {
   }
 
   public async healthCheck(): Promise<{ workerAlive: boolean; interactiveAlive: boolean }> {
-    // LOG TEMPORÁRIO
     this.logger.info(`[PlaywrightBrowserRuntime] [healthCheck] runtimeId=${this.runtimeId} workerBrowser === null: ${this.workerBrowser === null}, interactiveBrowser === null: ${this.interactiveBrowser === null}, workerBrowser.isConnected(): ${this.workerBrowser ? this.workerBrowser.isConnected() : 'N/A'}, interactiveBrowser.isConnected(): ${this.interactiveBrowser ? this.interactiveBrowser.isConnected() : 'N/A'}`);
     return {
       workerAlive: this.workerBrowser ? this.workerBrowser.isConnected() : false,

@@ -1,51 +1,84 @@
 import { Browser, BrowserContext } from 'playwright-core';
 import { BrowserProfile } from '../../../domain/models/BrowserProfile.js';
+import { IBrowserLaunchPolicy } from '../../../domain/ports/IBrowserLaunchPolicy.js';
 
 export class BrowserContextFactory {
-  public static async createAnonymousContext(browser: Browser, profile?: BrowserProfile): Promise<BrowserContext> {
-    console.log('[BrowserContextFactory] [browser.newContext] Criando contexto anônimo.');
-    return browser.newContext({
-      locale: profile?.locale || 'pt-BR',
-      timezoneId: profile?.timezoneId || 'America/Sao_Paulo',
-      colorScheme: profile?.colorScheme || 'light',
-      viewport: profile?.viewport !== undefined ? profile.viewport : { width: 1366, height: 768 },
-      userAgent: profile?.userAgent || 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      extraHTTPHeaders: profile?.extraHTTPHeaders,
-      javaScriptEnabled: profile?.javaScriptEnabled !== undefined ? profile.javaScriptEnabled : true
+  constructor(private readonly launchPolicy: IBrowserLaunchPolicy) {}
+
+  public async createAnonymousContext(browser: Browser, profile?: BrowserProfile): Promise<BrowserContext> {
+    console.log('[BrowserContextFactory] [createAnonymousContext] Criando contexto anônimo.');
+    const policy = this.launchPolicy.getLaunchOptions('worker', profile);
+    
+    const context = await browser.newContext({
+      locale: policy.contextOptions.locale,
+      timezoneId: policy.contextOptions.timezoneId,
+      colorScheme: policy.contextOptions.colorScheme,
+      viewport: policy.contextOptions.viewport || undefined,
+      userAgent: policy.contextOptions.userAgent,
+      extraHTTPHeaders: policy.contextOptions.extraHTTPHeaders,
+      javaScriptEnabled: policy.contextOptions.javaScriptEnabled,
+      permissions: policy.contextOptions.permissions,
+      geolocation: policy.contextOptions.geolocation
     });
+
+    for (const script of policy.initScripts) {
+      await context.addInitScript(script.source);
+    }
+
+    return context;
   }
 
-  public static async createAuthenticatedContext(browser: Browser, storageState: any, profile?: BrowserProfile): Promise<BrowserContext> {
-    console.log('[BrowserContextFactory] [browser.newContext] Criando contexto autenticado.');
-    return browser.newContext({
+  public async createAuthenticatedContext(browser: Browser, storageState: any, profile?: BrowserProfile): Promise<BrowserContext> {
+    console.log('[BrowserContextFactory] [createAuthenticatedContext] Criando contexto autenticado.');
+    const policy = this.launchPolicy.getLaunchOptions('worker', profile);
+    
+    const context = await browser.newContext({
       storageState,
-      locale: profile?.locale || 'pt-BR',
-      timezoneId: profile?.timezoneId || 'America/Sao_Paulo',
-      colorScheme: profile?.colorScheme || 'light',
-      viewport: profile?.viewport !== undefined ? profile.viewport : { width: 1366, height: 768 },
-      userAgent: profile?.userAgent || 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      extraHTTPHeaders: profile?.extraHTTPHeaders,
-      javaScriptEnabled: profile?.javaScriptEnabled !== undefined ? profile.javaScriptEnabled : true
+      locale: policy.contextOptions.locale,
+      timezoneId: policy.contextOptions.timezoneId,
+      colorScheme: policy.contextOptions.colorScheme,
+      viewport: policy.contextOptions.viewport || undefined,
+      userAgent: policy.contextOptions.userAgent,
+      extraHTTPHeaders: policy.contextOptions.extraHTTPHeaders,
+      javaScriptEnabled: policy.contextOptions.javaScriptEnabled,
+      permissions: policy.contextOptions.permissions,
+      geolocation: policy.contextOptions.geolocation
     });
+
+    for (const script of policy.initScripts) {
+      await context.addInitScript(script.source);
+    }
+
+    return context;
   }
 
-  public static async createInteractiveContext(browser: Browser, profile?: BrowserProfile): Promise<BrowserContext> {
-    console.log('[BrowserContextFactory] [browser.newContext] Criando contexto interativo.');
-    return browser.newContext({
-      locale: profile?.locale || 'pt-BR',
-      timezoneId: profile?.timezoneId || 'America/Sao_Paulo',
-      colorScheme: profile?.colorScheme || 'light',
-      viewport: profile?.viewport !== undefined ? profile.viewport : { width: 1366, height: 768 },
-      userAgent: profile?.userAgent || 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      extraHTTPHeaders: profile?.extraHTTPHeaders,
-      javaScriptEnabled: profile?.javaScriptEnabled !== undefined ? profile.javaScriptEnabled : true,
-      acceptDownloads: true
+  public async createInteractiveContext(browser: Browser, profile?: BrowserProfile): Promise<BrowserContext> {
+    console.log('[BrowserContextFactory] [createInteractiveContext] Criando contexto interativo.');
+    const policy = this.launchPolicy.getLaunchOptions('interactive', profile);
+    
+    const context = await browser.newContext({
+      locale: policy.contextOptions.locale,
+      timezoneId: policy.contextOptions.timezoneId,
+      colorScheme: policy.contextOptions.colorScheme,
+      viewport: policy.contextOptions.viewport || undefined,
+      userAgent: policy.contextOptions.userAgent,
+      extraHTTPHeaders: policy.contextOptions.extraHTTPHeaders,
+      javaScriptEnabled: policy.contextOptions.javaScriptEnabled,
+      permissions: policy.contextOptions.permissions,
+      geolocation: policy.contextOptions.geolocation,
+      acceptDownloads: policy.contextOptions.acceptDownloads
     });
+
+    for (const script of policy.initScripts) {
+      await context.addInitScript(script.source);
+    }
+
+    return context;
   }
 
-  public static async disposeContext(context: BrowserContext): Promise<void> {
+  public async disposeContext(context: BrowserContext): Promise<void> {
     if (context) {
-      console.log('[BrowserContextFactory] [context.close] Fechando contexto.');
+      console.log('[BrowserContextFactory] [disposeContext] Fechando contexto.');
       await context.close().catch(() => {});
     }
   }

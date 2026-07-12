@@ -47,6 +47,8 @@ import { PlaywrightNavigationObserver } from '../../adapters/browser/PlaywrightN
 import { MercadoLivrePageClassifier } from '../../adapters/marketplaces/mercadolivre/MercadoLivrePageClassifier.js';
 import { MercadoLivreProductPageValidator } from '../../adapters/marketplaces/mercadolivre/MercadoLivreProductPageValidator.js';
 import { MercadoLivreProductExtractor } from '../../adapters/marketplaces/mercadolivre/MercadoLivreProductExtractor.js';
+import { PlaywrightBrowserLaunchPolicy } from '../../adapters/browser/PlaywrightBrowserLaunchPolicy.js';
+import { BrowserContextFactory } from '../../adapters/browser/BrowserContextFactory.js';
 
 // Routes
 import { healthRoutes } from './routes/health.js';
@@ -121,9 +123,12 @@ const browserProfile: BrowserProfile = {
   }
 };
 
-const browserRuntime = new PlaywrightBrowserRuntime(fastify.log);
+const launchPolicy = new PlaywrightBrowserLaunchPolicy();
+const contextFactory = new BrowserContextFactory(launchPolicy);
+
+const browserRuntime = new PlaywrightBrowserRuntime(fastify.log, launchPolicy);
 fastify.log.info(`[Server Bootstrap] browserRuntime criada no server.ts com runtimeId=${browserRuntime.runtimeId}. Ref: [PlaywrightBrowserRuntime@${Math.random().toString(36).substring(2, 8)}]`);
-const sessionFactory = new PlaywrightBrowserSessionFactory(browserRuntime, profileManager, browserProfile, fastify.log);
+const sessionFactory = new PlaywrightBrowserSessionFactory(browserRuntime, profileManager, browserProfile, contextFactory, fastify.log);
 
 const marketplaceRegistry = new MarketplaceRegistry();
 marketplaceRegistry.register(new AmazonPlugin(fastify.log));
@@ -140,7 +145,7 @@ marketplaceRegistry.register(new ShopeePlugin(fastify.log));
 marketplaceRegistry.registerFallback(new GenericPlugin());
 
 const authenticationRegistry = new AuthenticationRegistry(fastify.log);
-const authenticationCleanupScheduler = new AuthenticationCleanupScheduler(authenticationRegistry, eventBus, fastify.log);
+const authenticationCleanupScheduler = new AuthenticationCleanupScheduler(authenticationRegistry, eventBus, contextFactory, fastify.log);
 const authenticationService = new AuthenticationService(
   browserRuntime,
   authenticationRegistry,
@@ -148,6 +153,7 @@ const authenticationService = new AuthenticationService(
   marketplaceRegistry,
   profileManager,
   browserProfile,
+  contextFactory,
   fastify.log
 );
 

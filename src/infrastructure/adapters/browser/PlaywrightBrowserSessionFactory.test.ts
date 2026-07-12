@@ -4,6 +4,8 @@ import { PlaywrightBrowserSessionFactory } from './PlaywrightBrowserSessionFacto
 import { IBrowserRuntime } from '../../../domain/ports/IBrowserRuntime.js';
 import { IProfileManager } from '../../../domain/ports/IProfileManager.js';
 import { BrowserProfile } from '../../../domain/models/BrowserProfile.js';
+import { PlaywrightBrowserLaunchPolicy } from './PlaywrightBrowserLaunchPolicy.js';
+import { BrowserContextFactory } from './BrowserContextFactory.js';
 
 test('PlaywrightBrowserSessionFactory tests', async (t) => {
   const browserProfile: BrowserProfile = {
@@ -33,7 +35,8 @@ test('PlaywrightBrowserSessionFactory tests', async (t) => {
       }
       return {
         newPage: async () => mockPage,
-        close: async () => {}
+        close: async () => {},
+        addInitScript: async () => {}
       };
     }
   };
@@ -59,7 +62,9 @@ test('PlaywrightBrowserSessionFactory tests', async (t) => {
       }
     } as any;
 
-    const factory = new PlaywrightBrowserSessionFactory(mockRuntime, mockProfileManager, browserProfile, mockLogger);
+    const launchPolicy = new PlaywrightBrowserLaunchPolicy('development', true);
+    const contextFactory = new BrowserContextFactory(launchPolicy);
+    const factory = new PlaywrightBrowserSessionFactory(mockRuntime, mockProfileManager, browserProfile, contextFactory, mockLogger);
     const session = await factory.createSession('amazon', 'valid-profile');
 
     assert.ok(session);
@@ -79,7 +84,9 @@ test('PlaywrightBrowserSessionFactory tests', async (t) => {
       loadStorageState: async () => null
     } as any;
 
-    const factory = new PlaywrightBrowserSessionFactory(mockRuntime, mockProfileManager, browserProfile, mockLogger);
+    const launchPolicy = new PlaywrightBrowserLaunchPolicy('development', true);
+    const contextFactory = new BrowserContextFactory(launchPolicy);
+    const factory = new PlaywrightBrowserSessionFactory(mockRuntime, mockProfileManager, browserProfile, contextFactory, mockLogger);
     const session = await factory.createSession('amazon', 'non-existent-profile');
 
     assert.ok(session);

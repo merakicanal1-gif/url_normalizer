@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert';
 import { PlaywrightBrowserRuntime } from './PlaywrightBrowserRuntime.js';
+import { PlaywrightBrowserLaunchPolicy } from './PlaywrightBrowserLaunchPolicy.js';
 
 test('PlaywrightBrowserRuntime lifecycle and singletons', async (t) => {
   const mockLogger = {
@@ -9,8 +10,10 @@ test('PlaywrightBrowserRuntime lifecycle and singletons', async (t) => {
     error: () => {}
   };
 
+  const launchPolicy = new PlaywrightBrowserLaunchPolicy('development', true);
+
   await t.test('start, verify active instances, and close', async () => {
-    const runtime = new PlaywrightBrowserRuntime(mockLogger);
+    const runtime = new PlaywrightBrowserRuntime(mockLogger, launchPolicy);
 
     // Deve lançar erro se tentar obter antes de iniciar
     assert.throws(() => runtime.getInteractiveBrowser(), /Interactive Browser não foi/);

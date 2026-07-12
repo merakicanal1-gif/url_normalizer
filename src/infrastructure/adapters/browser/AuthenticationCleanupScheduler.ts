@@ -9,6 +9,7 @@ export class AuthenticationCleanupScheduler {
   constructor(
     private registry: AuthenticationRegistry,
     private eventBus: IApplicationEventBus,
+    private contextFactory: BrowserContextFactory,
     private logger: { info: (msg: string) => void; warn: (msg: string) => void; error: (msg: string, err?: any) => void },
     private intervalMs: number = 60000
   ) {}
@@ -42,7 +43,7 @@ export class AuthenticationCleanupScheduler {
 
         try {
           if (session.context) {
-            await BrowserContextFactory.disposeContext(session.context);
+            await this.contextFactory.disposeContext(session.context);
           }
         } catch (err: any) {
           this.logger.error(

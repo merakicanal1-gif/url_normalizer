@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert';
 import { SecureCryptoHelper } from '../../infrastructure/adapters/session/SecureCryptoHelper.js';
 import { PlaywrightBrowserRuntime } from '../../infrastructure/adapters/browser/PlaywrightBrowserRuntime.js';
+import { PlaywrightBrowserLaunchPolicy } from '../../infrastructure/adapters/browser/PlaywrightBrowserLaunchPolicy.js';
 import { AuthenticationService } from '../services/AuthenticationService.js';
 import { healthRoutes } from '../../infrastructure/transport/http/routes/health.js';
 import Fastify from 'fastify';
@@ -51,7 +52,8 @@ test('Sprint 2.0.6A — Production configurations, security checks and health ch
     const originalEnabled = process.env.INTERACTIVE_BROWSER_ENABLED;
     process.env.INTERACTIVE_BROWSER_ENABLED = 'false';
 
-    const runtime = new PlaywrightBrowserRuntime(mockLogger);
+    const launchPolicy = new PlaywrightBrowserLaunchPolicy('development', true);
+    const runtime = new PlaywrightBrowserRuntime(mockLogger, launchPolicy);
     await runtime.start();
 
     // O worker browser deve iniciar, mas o interactive deve ser null
@@ -85,6 +87,7 @@ test('Sprint 2.0.6A — Production configurations, security checks and health ch
 
     const service = new AuthenticationService(
       runtimeMock,
+      null as any,
       null as any,
       null as any,
       null as any,
@@ -138,7 +141,8 @@ test('Sprint 2.0.6A — Production configurations, security checks and health ch
   });
 
   await t.test('PlaywrightBrowserRuntime - Shutdown é totalmente idempotente', async () => {
-    const runtime = new PlaywrightBrowserRuntime(mockLogger);
+    const launchPolicy = new PlaywrightBrowserLaunchPolicy('development', true);
+    const runtime = new PlaywrightBrowserRuntime(mockLogger, launchPolicy);
     await runtime.start();
 
     // Primeiro shutdown encerra normalmente

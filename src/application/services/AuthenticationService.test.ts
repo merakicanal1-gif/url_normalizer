@@ -75,6 +75,13 @@ test('AuthenticationService unit tests', async (t) => {
     healthCheck: async () => ({ workerAlive: true, interactiveAlive: true })
   };
 
+  const mockContextFactory = {
+    createInteractiveContext: async (browser: any, profile?: any) => mockContext as any,
+    disposeContext: async (context: any) => {
+      contextClosed = true;
+    }
+  } as any;
+
   await t.test('inicia autenticação com sucesso abrindo janela e publicando eventos', async () => {
     const registry = new AuthenticationRegistry();
     const publishedEvents: ApplicationEvent[] = [];
@@ -92,6 +99,7 @@ test('AuthenticationService unit tests', async (t) => {
       marketplaceRegistry,
       mockProfileManager,
       browserProfile,
+      mockContextFactory,
       mockLogger
     );
 
@@ -157,6 +165,13 @@ test('AuthenticationService unit tests', async (t) => {
       getInteractiveBrowser: () => mockFailingBrowser
     };
 
+    const mockFailingContextFactory = {
+      createInteractiveContext: async () => mockFailingContext as any,
+      disposeContext: async () => {
+        contextClosed = true;
+      }
+    } as any;
+
     const service = new AuthenticationService(
       failingRuntime,
       registry,
@@ -164,6 +179,7 @@ test('AuthenticationService unit tests', async (t) => {
       marketplaceRegistry,
       mockProfileManager,
       browserProfile,
+      mockFailingContextFactory,
       mockLogger
     );
 
@@ -196,6 +212,7 @@ test('AuthenticationService unit tests', async (t) => {
       marketplaceRegistry,
       mockProfileManager,
       browserProfile,
+      mockContextFactory,
       mockLogger
     );
 
@@ -219,6 +236,7 @@ test('AuthenticationService unit tests', async (t) => {
       marketplaceRegistry,
       mockProfileManager,
       browserProfile,
+      mockContextFactory,
       mockLogger
     );
 
@@ -278,6 +296,13 @@ test('AuthenticationService unit tests', async (t) => {
       })
     };
 
+    const testContextFactory = {
+      createInteractiveContext: async () => testContext as any,
+      disposeContext: async () => {
+        contextClosedLocal = true;
+      }
+    } as any;
+
     const service = new AuthenticationService(
       mockBrowserRuntime,
       registry,
@@ -285,6 +310,7 @@ test('AuthenticationService unit tests', async (t) => {
       marketplaceRegistry,
       testProfileManager,
       browserProfile,
+      testContextFactory,
       mockLogger
     );
 

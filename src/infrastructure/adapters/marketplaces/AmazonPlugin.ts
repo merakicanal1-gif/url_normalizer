@@ -5,6 +5,7 @@ import { ChallengeDetectedError } from '../../../domain/errors/ChallengeDetected
 import { MarketplaceUnavailableError, MarketplacePageType } from '../../../domain/errors/MarketplaceUnavailableError.js';
 import { Page } from 'playwright-core';
 import * as path from 'path';
+import * as fs from 'fs';
 
 export class AmazonPlugin implements IMarketplacePlugin {
   constructor(
@@ -28,7 +29,10 @@ export class AmazonPlugin implements IMarketplacePlugin {
   public async normalize(page: INavigatorPage, finalUrl: URL): Promise<NormalizedProduct> {
     console.log(`[AmazonPlugin] [extract/normalize] Iniciando extração. URL recebida="${finalUrl.toString()}"`);
     const rawPage: Page = (page as any).getRawPage();
-    const artifactsDir = '/home/emerson/.gemini/antigravity/brain/05de339f-7fba-4351-88c9-deae9581afd6';
+    const artifactsDir = process.env.ARTIFACTS_DIR || path.join(process.cwd(), 'data', 'screenshots');
+    if (!fs.existsSync(artifactsDir)) {
+      fs.mkdirSync(artifactsDir, { recursive: true });
+    }
 
     const title = await rawPage.title();
     const html = await rawPage.content();

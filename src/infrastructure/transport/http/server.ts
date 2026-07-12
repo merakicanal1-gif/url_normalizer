@@ -43,6 +43,10 @@ import { AmazonPlugin } from '../../adapters/marketplaces/AmazonPlugin.js';
 import { MercadoLivrePlugin } from '../../adapters/marketplaces/MercadoLivrePlugin.js';
 import { ShopeePlugin } from '../../adapters/marketplaces/ShopeePlugin.js';
 import { GenericPlugin } from '../../adapters/marketplaces/GenericPlugin.js';
+import { PlaywrightNavigationObserver } from '../../adapters/browser/PlaywrightNavigationObserver.js';
+import { MercadoLivrePageClassifier } from '../../adapters/marketplaces/mercadolivre/MercadoLivrePageClassifier.js';
+import { MercadoLivreProductPageValidator } from '../../adapters/marketplaces/mercadolivre/MercadoLivreProductPageValidator.js';
+import { MercadoLivreProductExtractor } from '../../adapters/marketplaces/mercadolivre/MercadoLivreProductExtractor.js';
 
 // Routes
 import { healthRoutes } from './routes/health.js';
@@ -123,7 +127,15 @@ const sessionFactory = new PlaywrightBrowserSessionFactory(browserRuntime, profi
 
 const marketplaceRegistry = new MarketplaceRegistry();
 marketplaceRegistry.register(new AmazonPlugin(fastify.log));
-marketplaceRegistry.register(new MercadoLivrePlugin(fastify.log));
+marketplaceRegistry.register(
+  new MercadoLivrePlugin(
+    fastify.log,
+    new MercadoLivrePageClassifier(),
+    new PlaywrightNavigationObserver(fastify.log),
+    new MercadoLivreProductPageValidator(),
+    new MercadoLivreProductExtractor(fastify.log)
+  )
+);
 marketplaceRegistry.register(new ShopeePlugin(fastify.log));
 marketplaceRegistry.registerFallback(new GenericPlugin());
 

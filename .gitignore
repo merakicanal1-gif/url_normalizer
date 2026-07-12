@@ -44,3 +44,6 @@ Thumbs.db
 playwright-report/
 test-results/
 diagnostic_screenshot.png
+
+# Arquivos exportados de perfis autenticados
+*.profile

@@ -27,6 +27,7 @@ import { PlaywrightBrowserRuntime } from '../../adapters/browser/PlaywrightBrows
 import { PlaywrightBrowserSessionFactory } from '../../adapters/browser/PlaywrightBrowserSessionFactory.js';
 import { AuthenticationRegistry } from '../../adapters/browser/AuthenticationRegistry.js';
 import { AuthenticationCleanupScheduler } from '../../adapters/browser/AuthenticationCleanupScheduler.js';
+import { StructuredNormalizeTelemetry } from '../../telemetry/StructuredNormalizeTelemetry.js';
 
 // Resolvers
 import { CompositeUrlResolver } from '../../../application/resolver/CompositeUrlResolver.js';
@@ -173,19 +174,6 @@ const authenticationService = new AuthenticationService(
   fastify.log
 );
 
-// Resolvedores de URL e Normalização
-const compositeUrlResolver = new CompositeUrlResolver(
-  [
-    new DirectMarketplaceResolver(),
-    new AmazonAffiliateResolver(fastify.log),
-    new MercadoLivreAffiliateResolver(fastify.log),
-    new ShopeeAffiliateResolver(fastify.log),
-    new GenericRedirectResolver(fastify.log),
-    new PlaywrightRedirectResolver(sessionFactory, fastify.log)
-  ],
-  fastify.log
-);
-
 // Instanciar adaptadores de perfil
 const profileValidator = new ProfileIntegrityValidator(profileRepository, cryptoHelper);
 const profileExporter = new EncryptedProfileExporter(profileRepository);
@@ -202,6 +190,23 @@ const profileInspector = new PlaywrightProfileInspector(
   browserProfile,
   fastify.log
 );
+const normalizeTelemetry = new StructuredNormalizeTelemetry(pinoLogger);
+
+// Resolvedores de URL e Normalização
+const playwrightRedirectResolver = new PlaywrightRedirectResolver(sessionFactory, fastify.log, normalizeTelemetry);
+
+const compositeUrlResolver = new CompositeUrlResolver(
+  [
+    new DirectMarketplaceResolver(),
+    new AmazonAffiliateResolver(fastify.log),
+    new MercadoLivreAffiliateResolver(fastify.log),
+    new ShopeeAffiliateResolver(fastify.log),
+    new GenericRedirectResolver(fastify.log),
+    playwrightRedirectResolver
+  ],
+  fastify.log,
+  normalizeTelemetry
+);
 
 // Instanciar serviços de aplicação de perfil
 const exportService = new ProfileExportService(profileExporter);
@@ -215,7 +220,10 @@ const normalizeService = new NormalizeService(
   marketplaceRegistry,
   sessionFactory,
   eventBus,
-  sessionManager
+  sessionManager,
+  30000,
+  normalizeTelemetry,
+  statusResolver
 );
 
 // 4. Registro de Rotas

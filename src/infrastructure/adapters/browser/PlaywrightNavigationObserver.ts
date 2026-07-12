@@ -18,9 +18,11 @@ export class PlaywrightNavigationObserver implements INavigationObserver {
       });
     }
 
+    let isActive = true;
     const initialUrl = rawPage.url();
     const urlChangePromise = new Promise<string>((resolve) => {
       const check = () => {
+        if (!isActive) return;
         try {
           const currentUrl = rawPage.url();
           if (currentUrl !== initialUrl && (/MLB-?(\d+)/i.test(currentUrl) || /\/(dp|gp\/product)\/([A-Z0-9]{10})/i.test(currentUrl))) {
@@ -43,14 +45,18 @@ export class PlaywrightNavigationObserver implements INavigationObserver {
       .then(() => 'traditional_navigation')
       .catch(() => 'navigation_timeout');
 
-    const raceResult = await Promise.race([
-      urlChangePromise,
-      pdpElementPromise,
-      playwrightNavigationPromise
-    ]);
+    try {
+      const raceResult = await Promise.race([
+        urlChangePromise,
+        pdpElementPromise,
+        playwrightNavigationPromise
+      ]);
 
-    const duration = Math.round(performance.now() - stateStartTime);
-    this.logger.info(`[NavigationObserver] Transição concluída. Vencedor=${raceResult} em ${duration}ms.`);
-    return raceResult;
+      const duration = Math.round(performance.now() - stateStartTime);
+      this.logger.info(`[NavigationObserver] Transição concluída. Vencedor=${raceResult} em ${duration}ms.`);
+      return raceResult;
+    } finally {
+      isActive = false;
+    }
   }
 }

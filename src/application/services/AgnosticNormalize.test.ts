@@ -33,7 +33,7 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
     }),
     getAuthenticationStrategy: () => ({
       getValidationUrl: () => 'about:blank',
-      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' })
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN', strategyVersion: 1, summary: 'mock', evidence: [] })
     })
   };
 
@@ -51,7 +51,7 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
     }),
     getAuthenticationStrategy: () => ({
       getValidationUrl: () => 'about:blank',
-      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' })
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN', strategyVersion: 1, summary: 'mock', evidence: [] })
     })
   };
 

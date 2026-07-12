@@ -27,7 +27,7 @@ test('AuthenticationService unit tests', async (t) => {
     normalize: async () => ({} as any),
     getAuthenticationStrategy: () => ({
       getValidationUrl: () => 'about:blank',
-      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' as const })
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' as const, strategyVersion: 1, summary: 'mock', evidence: [] })
     })
   };
 

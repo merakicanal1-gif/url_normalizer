@@ -1,12 +1,20 @@
 import { IUrlResolver, ResolvedUrl } from '../../../domain/ports/IUrlResolver.js';
 import { IBrowserSessionFactory } from '../../../domain/ports/IBrowserSessionFactory.js';
 import { INavigatorPage } from '../../../domain/ports/INavigator.js';
+import { INormalizeTelemetry } from '../../../domain/ports/INormalizeTelemetry.js';
+import { NoOpNormalizeTelemetry } from '../../telemetry/NoOpNormalizeTelemetry.js';
+import { RedirectReason } from '../../../domain/models/trace/RedirectReason.js';
 
 export class PlaywrightRedirectResolver implements IUrlResolver {
+  private telemetry: INormalizeTelemetry;
+
   constructor(
     private sessionFactory: IBrowserSessionFactory,
-    private logger: { info: (msg: string) => void; error: (msg: string, err?: any) => void }
-  ) {}
+    private logger: { info: (msg: string) => void; error: (msg: string, err?: any) => void },
+    telemetry?: INormalizeTelemetry
+  ) {
+    this.telemetry = telemetry || new NoOpNormalizeTelemetry();
+  }
 
   public canResolve(_url: URL): boolean {
     return true; // Fallback final universal
@@ -20,11 +28,41 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
     let pageToUse = sessionPage;
     let sessionToDispose: any = null;
 
-    if (!pageToUse) {
+    if (pageToUse) {
+      this.telemetry.browserReused({ runtime: 'worker', browserMode: 'headless' });
+    } else {
+      this.telemetry.browserCreated({ runtime: 'worker', browserMode: 'headless' });
       this.logger.info(`[PlaywrightRedirectResolver] Nenhum sessionPage ativo fornecido. Criando nova sessão worker 'generic'.`);
       const session = await this.sessionFactory.createSession('generic', profileId);
       pageToUse = session.page;
       sessionToDispose = session;
+    }
+
+    const rawPage = (pageToUse as any).getRawPage?.();
+    let redirectCount = 0;
+
+    const onRequest = (request: any) => {
+      const redirectedFrom = request.redirectedFrom();
+      if (redirectedFrom) {
+        redirectCount++;
+        const response = redirectedFrom.response();
+        let reason: RedirectReason = 'UNKNOWN';
+        if (response) {
+          const status = response.status();
+          if (status === 301) reason = 'HTTP_301';
+          else if (status === 302) reason = 'HTTP_302';
+        }
+        this.telemetry.redirect({
+          resolver: 'PlaywrightRedirectResolver',
+          fromUrl: redirectedFrom.url(),
+          toUrl: request.url(),
+          reason
+        });
+      }
+    };
+
+    if (rawPage) {
+      rawPage.on('request', onRequest);
     }
 
     try {
@@ -46,7 +84,7 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
         metadata: {
           resolver: 'PlaywrightRedirectResolver',
           strategy: 'browser',
-          redirectCount: 1,
+          redirectCount,
           durationMs,
           usedBrowser: true,
           usedHttp: false,
@@ -80,9 +118,13 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
         }
       };
     } finally {
+      if (rawPage) {
+        rawPage.off('request', onRequest);
+      }
       if (sessionToDispose) {
         await sessionToDispose.dispose().catch(() => {});
       }
     }
   }
 }
+

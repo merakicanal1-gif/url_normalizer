@@ -1,70 +1,141 @@
-import { IAuthenticationStrategy, AuthenticationStrategyResult } from '../../../domain/ports/IAuthenticationStrategy.js';
-import { IPageInspector } from '../../../domain/ports/IPageInspector.js';
+import { BaseAuthenticationStrategy } from './BaseAuthenticationStrategy.js';
+import {
+  AuthenticationCookie,
+  AuthenticationEvidence,
+  AuthenticationInspectionContext
+} from '../../../domain/ports/IAuthenticationStrategy.js';
 
-export class MercadoLivreAuthenticationStrategy implements IAuthenticationStrategy {
+export class MercadoLivreAuthenticationStrategy extends BaseAuthenticationStrategy {
+  public readonly strategyVersion = 1;
+
   public getValidationUrl(): string {
     return 'https://www.mercadolivre.com.br/';
   }
 
-  public async detect(pageInspector: IPageInspector): Promise<AuthenticationStrategyResult> {
-    const url = await pageInspector.url();
+  protected async checkSessionIntegrity(context: AuthenticationInspectionContext) {
+    const sessionCookieNames = ['sid', 'ssid', 'user_session', 'org_session_key'];
+    const presentCookies = context.cookies.filter(c => sessionCookieNames.includes(c.name.toLowerCase()));
 
-    // 1. Verificar WAF/CAPTCHA por URL e conteúdo
-    if (url.includes('captcha') || url.includes('validatecaptcha')) {
+    const evidence: AuthenticationEvidence[] = presentCookies.map(c => ({
+      type: 'cookie',
+      value: c.name
+    }));
+
+    if (presentCookies.length === 0) {
       return {
-        authenticated: false,
+        isValid: false,
+        status: 'MISSING' as const,
         confidence: 1.0,
-        reason: 'Mercado Livre CAPTCHA page detected',
-        status: 'CAPTCHA_REQUIRED'
+        summary: 'Authentication cookies missing.',
+        reason: 'No active session cookies (sid, ssid, user_session) found for Mercado Livre.',
+        evidence
       };
     }
 
-    // 2. Verificar URL de Login
-    if (url.includes('/login') || url.includes('/signin') || url.includes('account-verification')) {
+    return {
+      isValid: true,
+      evidence
+    };
+  }
+
+  protected async detectChallenges(context: AuthenticationInspectionContext) {
+    const evidence: AuthenticationEvidence[] = [];
+
+    // 1. Detect WAF / CAPTCHA
+    const urlLower = context.url.toLowerCase();
+    if (urlLower.includes('captcha') || urlLower.includes('validatecaptcha') || urlLower.includes('recaptcha')) {
+      evidence.push({ type: 'url', value: context.url });
       return {
-        authenticated: false,
+        detected: true,
+        status: 'CAPTCHA_REQUIRED' as const,
         confidence: 1.0,
-        reason: 'Mercado Livre authentication/login page detected',
-        status: 'LOGIN_REQUIRED'
+        summary: 'CAPTCHA barrier detected.',
+        reason: `Mercado Livre CAPTCHA detected in URL: ${context.url}`,
+        evidence
       };
     }
 
-    // 3. Verificar botões de login visíveis no cabeçalho
-    // No Mercado Livre, se "Entre" ou "Crie a sua conta" estiverem visíveis, a sessão não está logada
-    const hasLoginLink = await pageInspector.exists('a[href*="/login"]') || await pageInspector.exists('a[href*="/registro"]');
-    const hasUserLabel = await pageInspector.exists('.nav-header-username') || await pageInspector.exists('.nav-header-user-label');
-
-    if (hasLoginLink && !hasUserLabel) {
+    // 2. Detect explicit login page URLs
+    if (urlLower.includes('/login') || urlLower.includes('/signin') || urlLower.includes('account-verification')) {
+      evidence.push({ type: 'url', value: context.url });
       return {
-        authenticated: false,
+        detected: true,
+        status: 'LOGIN_REQUIRED' as const,
+        confidence: 1.0,
+        summary: 'Login required.',
+        reason: `Mercado Livre login/register page detected in URL: ${context.url}`,
+        evidence
+      };
+    }
+
+    // 3. Detect login form elements or buttons
+    const loginFormFields = ['input[name="user_id"]', '#user_id', '#password', 'input[name="password"]'];
+    for (const selector of loginFormFields) {
+      if (await context.page.exists(selector)) {
+        evidence.push({ type: 'selector', value: selector });
+        return {
+          detected: true,
+          status: 'LOGIN_REQUIRED' as const,
+          confidence: 0.95,
+          summary: 'Login required.',
+          reason: `Mercado Livre login form element detected: ${selector}`,
+          evidence
+        };
+      }
+    }
+
+    // 4. Detect visible login link buttons in header
+    const hasLoginButton = await context.page.exists('a[href*="/login"]') || await context.page.exists('a[href*="/registro"]');
+    const hasUserLabel = await context.page.exists('.nav-header-username') || await context.page.exists('.nav-header-user-label');
+    if (hasLoginButton && !hasUserLabel) {
+      evidence.push({ type: 'selector', value: 'a[href*="/login"]' });
+      return {
+        detected: true,
+        status: 'LOGIN_REQUIRED' as const,
         confidence: 0.95,
-        reason: 'Login or registration links detected in header',
-        status: 'LOGIN_REQUIRED'
+        summary: 'Login required.',
+        reason: 'Mercado Livre login or registration links detected in header.',
+        evidence
       };
     }
 
-    // 4. Verificar cookies
-    const cookies = await pageInspector.cookies();
-    const cookieNames = cookies.map(c => c.name);
-    
-    // Cookies comuns de sessão do Mercado Livre (ex: sid, ssid, user_session)
-    const hasSessionCookie = cookieNames.some(name => ['sid', 'ssid', 'user_session', 'org_session_key'].includes(name.toLowerCase()));
+    return {
+      detected: false,
+      status: 'INVALID' as const,
+      confidence: 0,
+      reason: '',
+      summary: '',
+      evidence
+    };
+  }
 
-    if (hasUserLabel || hasSessionCookie) {
-      return {
-        authenticated: true,
-        confidence: hasUserLabel && hasSessionCookie ? 1.0 : 0.95,
-        reason: `User menu label (${hasUserLabel}) or session cookies (${hasSessionCookie}) detected`,
-        status: 'VALID'
-      };
+  protected async detectPositiveSignals(context: AuthenticationInspectionContext) {
+    const evidence: AuthenticationEvidence[] = [];
+    const usernameSelectors = ['.nav-header-username', '.nav-header-user-label'];
+
+    for (const selector of usernameSelectors) {
+      if (await context.page.exists(selector)) {
+        const text = await context.page.text(selector);
+        evidence.push({ type: 'selector', value: selector });
+        if (text) {
+          evidence.push({ type: 'text', value: text.trim() });
+        }
+        return {
+          authenticated: true,
+          confidence: 1.0,
+          summary: 'Session is valid.',
+          reason: `Mercado Livre user label detected: "${text ? text.trim() : ''}"`,
+          evidence
+        };
+      }
     }
 
-    // Fallback caso não ache sinais fortes
     return {
       authenticated: false,
-      confidence: 0.50,
-      reason: 'No authentication signals or user menu found',
-      status: 'UNKNOWN'
+      confidence: 0,
+      reason: 'No Mercado Livre authenticated user label detected.',
+      summary: 'Login required.',
+      evidence
     };
   }
 }

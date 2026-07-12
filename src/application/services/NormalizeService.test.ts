@@ -52,7 +52,7 @@ test('NormalizeService unit & integration tests', async (t) => {
     normalize: async () => mockProduct,
     getAuthenticationStrategy: () => ({
       getValidationUrl: () => 'about:blank',
-      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN' })
+      detect: async () => ({ authenticated: false, confidence: 0, reason: 'mock', status: 'UNKNOWN', strategyVersion: 1, summary: 'mock', evidence: [] })
     })
   };
 

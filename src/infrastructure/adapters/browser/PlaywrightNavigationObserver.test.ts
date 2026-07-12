@@ -20,11 +20,11 @@ test('PlaywrightNavigationObserver - URL change matches first', async () => {
         : 'https://www.mercadolivre.com.br/social/xaviertech';
     },
     waitForSelector: async () => {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       return {};
     },
     waitForNavigation: async () => {
-      await new Promise(resolve => setTimeout(resolve, 200));
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   };
 

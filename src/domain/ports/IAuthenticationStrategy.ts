@@ -12,7 +12,7 @@ export interface AuthenticationCookie {
 }
 
 export interface AuthenticationEvidence {
-  type: 'cookie' | 'selector' | 'url' | 'text' | 'challenge' | 'redirect' | 'error';
+  type: 'cookie' | 'selector' | 'url' | 'text' | 'challenge' | 'redirect' | 'error' | 'warning';
   value: string;
 }
 

@@ -149,6 +149,23 @@ test('AmazonAuthenticationStrategy - storageState invalid / cookies missing', as
   assert.match(result.reason, /missing required Amazon cookies/i);
 });
 
+test('AmazonAuthenticationStrategy - VALID session with degraded cookie integrity (DOM_FIRST)', async () => {
+  const strategy = new AmazonAuthenticationStrategy();
+  const inspector = new MockPageInspector(
+    'https://www.amazon.com.br/gp/css/homepage.html',
+    [], // Nenhum cookie presente
+    ['#nav-link-accountList-nav-line-1'],
+    { '#nav-link-accountList-nav-line-1': 'Olá, Emerson' }
+  );
+
+  const result = await strategy.detect(inspector);
+  assert.strictEqual(result.authenticated, true);
+  assert.strictEqual(result.status, 'VALID');
+  assert.match(result.reason, /Visual authenticated session detected. Cookie integrity degraded/i);
+  assert.ok(result.evidence.some(e => e.type === 'warning' && e.value.includes('Cookie integrity degraded')));
+});
+
+
 // ----------------------------------------------------
 // 2. MercadoLivreAuthenticationStrategy Tests
 // ----------------------------------------------------

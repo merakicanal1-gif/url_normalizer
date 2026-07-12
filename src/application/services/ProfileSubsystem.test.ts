@@ -109,7 +109,7 @@ test('Subsistema de Perfis e Sessões - Testes Unitários e Integração', async
     );
     const resultLogin = await strategy.detect(loginInspector);
     assert.strictEqual(resultLogin.authenticated, false);
-    assert.strictEqual(resultLogin.status, 'MISSING');
+    assert.strictEqual(resultLogin.status, 'LOGIN_REQUIRED');
   });
 
   await t.test('2. Estratégia de Autenticação - Mercado Livre', async () => {

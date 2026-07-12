@@ -7,6 +7,7 @@ import {
 
 export class AmazonAuthenticationStrategy extends BaseAuthenticationStrategy {
   public readonly strategyVersion = 1;
+  protected override readonly evaluationPolicy = 'DOM_FIRST' as const;
 
   public getValidationUrl(): string {
     return 'https://www.amazon.com.br/gp/css/homepage.html';

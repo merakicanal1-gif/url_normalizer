@@ -12,6 +12,8 @@ export abstract class BaseAuthenticationStrategy implements IAuthenticationStrat
   public abstract getValidationUrl(): string;
   public abstract readonly strategyVersion: number;
 
+  protected readonly evaluationPolicy: 'COOKIES_FIRST' | 'DOM_FIRST' = 'COOKIES_FIRST';
+
   public async detect(pageInspector: IPageInspector): Promise<AuthenticationStrategyResult> {
     try {
       // 1. Obter URL e Cookies para compor o contexto de inspeção
@@ -34,58 +36,127 @@ export abstract class BaseAuthenticationStrategy implements IAuthenticationStrat
         cookies
       };
 
-      // Etapa 1: Validar Integridade (cookies mínimos)
-      const integrity = await this.checkSessionIntegrity(context);
-      if (!integrity.isValid) {
+      if (this.evaluationPolicy === 'DOM_FIRST') {
+        // 1. Detectar Desafios/Barreiras (WAF, CAPTCHA, Login Page)
+        const challenge = await this.detectChallenges(context);
+        if (challenge.detected) {
+          return {
+            authenticated: false,
+            status: challenge.status,
+            confidence: challenge.confidence,
+            strategyVersion: this.strategyVersion,
+            summary: challenge.summary,
+            reason: challenge.reason,
+            evidence: challenge.evidence
+          };
+        }
+
+        // 2. Buscar Evidências Positivas (Menu do usuário, área logada)
+        const positive = await this.detectPositiveSignals(context);
+        if (positive.authenticated) {
+          // Enriquecer evidência de cookies mesmo quando autenticado via DOM
+          const integrity = await this.checkSessionIntegrity(context);
+          let reason = positive.reason;
+          const evidence = [...integrity.evidence, ...positive.evidence];
+
+          if (!integrity.isValid) {
+            reason = `Visual authenticated session detected. Cookie integrity degraded. Original reason: ${positive.reason}`;
+            evidence.push({
+              type: 'warning',
+              value: 'Visual authenticated session detected. Cookie integrity degraded.'
+            });
+          }
+
+          return {
+            authenticated: true,
+            status: 'VALID',
+            confidence: positive.confidence,
+            strategyVersion: this.strategyVersion,
+            summary: positive.summary,
+            reason,
+            evidence
+          };
+        }
+
+        // 3. Somente depois analisar cookies (Session Integrity)
+        const integrity = await this.checkSessionIntegrity(context);
+        if (!integrity.isValid) {
+          return {
+            authenticated: false,
+            status: integrity.status ?? 'INVALID',
+            confidence: integrity.confidence ?? 1.0,
+            strategyVersion: this.strategyVersion,
+            summary: integrity.summary ?? 'Session integrity check failed.',
+            reason: integrity.reason ?? 'Required session cookies missing.',
+            evidence: integrity.evidence
+          };
+        }
+
+        // Fallback: Nenhum desafio ou positivo explícito encontrado
         return {
           authenticated: false,
-          status: integrity.status ?? 'INVALID',
-          confidence: integrity.confidence ?? 1.0,
+          status: 'LOGIN_REQUIRED',
+          confidence: 0.85,
           strategyVersion: this.strategyVersion,
-          summary: integrity.summary ?? 'Session integrity check failed.',
-          reason: integrity.reason ?? 'Required session cookies missing.',
+          summary: 'Authentication required.',
+          reason: 'Validation page loaded but no authenticated user signals found.',
+          evidence: integrity.evidence
+        };
+      } else {
+        // Fluxo padrão: COOKIES_FIRST
+        // Etapa 1: Validar Integridade (cookies mínimos)
+        const integrity = await this.checkSessionIntegrity(context);
+        if (!integrity.isValid) {
+          return {
+            authenticated: false,
+            status: integrity.status ?? 'INVALID',
+            confidence: integrity.confidence ?? 1.0,
+            strategyVersion: this.strategyVersion,
+            summary: integrity.summary ?? 'Session integrity check failed.',
+            reason: integrity.reason ?? 'Required session cookies missing.',
+            evidence: integrity.evidence
+          };
+        }
+
+        // Etapa 3: Detectar Desafios/Barreiras (WAF, CAPTCHA, Login Page)
+        const challenge = await this.detectChallenges(context);
+        if (challenge.detected) {
+          return {
+            authenticated: false,
+            status: challenge.status,
+            confidence: challenge.confidence,
+            strategyVersion: this.strategyVersion,
+            summary: challenge.summary,
+            reason: challenge.reason,
+            evidence: challenge.evidence
+          };
+        }
+
+        // Etapa 4: Buscar Evidências Positivas (Menu do usuário, área logada)
+        const positive = await this.detectPositiveSignals(context);
+        if (positive.authenticated) {
+          return {
+            authenticated: true,
+            status: 'VALID',
+            confidence: positive.confidence,
+            strategyVersion: this.strategyVersion,
+            summary: positive.summary,
+            reason: positive.reason,
+            evidence: [...integrity.evidence, ...positive.evidence]
+          };
+        }
+
+        // Etapa 5 (Fallback): Nenhum desafio ou positivo explícito encontrado
+        return {
+          authenticated: false,
+          status: 'LOGIN_REQUIRED',
+          confidence: 0.85,
+          strategyVersion: this.strategyVersion,
+          summary: 'Authentication required.',
+          reason: 'Validation page loaded but no authenticated user signals found.',
           evidence: integrity.evidence
         };
       }
-
-      // Etapa 3: Detectar Desafios/Barreiras (WAF, CAPTCHA, Login Page)
-      const challenge = await this.detectChallenges(context);
-      if (challenge.detected) {
-        return {
-          authenticated: false,
-          status: challenge.status,
-          confidence: challenge.confidence,
-          strategyVersion: this.strategyVersion,
-          summary: challenge.summary,
-          reason: challenge.reason,
-          evidence: challenge.evidence
-        };
-      }
-
-      // Etapa 4: Buscar Evidências Positivas (Menu do usuário, área logada)
-      const positive = await this.detectPositiveSignals(context);
-      if (positive.authenticated) {
-        return {
-          authenticated: true,
-          status: 'VALID',
-          confidence: positive.confidence,
-          strategyVersion: this.strategyVersion,
-          summary: positive.summary,
-          reason: positive.reason,
-          evidence: [...integrity.evidence, ...positive.evidence]
-        };
-      }
-
-      // Etapa 5 (Fallback): Nenhum desafio ou positivo explícito encontrado
-      return {
-        authenticated: false,
-        status: 'LOGIN_REQUIRED',
-        confidence: 0.85,
-        strategyVersion: this.strategyVersion,
-        summary: 'Authentication required.',
-        reason: 'Validation page loaded but no authenticated user signals found.',
-        evidence: integrity.evidence
-      };
 
     } catch (err: any) {
       // Tratar erros sem propagar exceções

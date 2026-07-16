@@ -69,7 +69,7 @@ test('Subsistema de Perfis e Sessões - Testes Unitários e Integração', async
   const validator = new ProfileIntegrityValidator(repository, cryptoHelper);
   const exporter = new EncryptedProfileExporter(repository);
   const importer = new EncryptedProfileImporter(repository);
-  const sessionManager = new AuthenticationSessionManager(repository);
+  const sessionManager = new AuthenticationSessionManager(repository, lockManager);
   const statusResolver = new AuthenticationStatusResolver(repository, validator);
 
   const exportService = new ProfileExportService(exporter);
@@ -363,5 +363,80 @@ test('Subsistema de Perfis e Sessões - Testes Unitários e Integração', async
     assert.strictEqual(result.windowOpened, true);
     assert.strictEqual(result.authenticated, false); // dependendo do detector mock
     assert.strictEqual(result.detector.strategy, 'AmazonAuthenticationStrategy');
+  });
+
+  await t.test('7. Escrita Atômica (Safe Write) e Validação de Conteúdo', async () => {
+    const mkt = 'amazon';
+    const profileId = 'safe-write-test';
+    
+    // Criar perfil inicial
+    await profileManager.createProfile(mkt, profileId, 'test-system');
+    
+    // Tentar gravar um storageState criptografado corrompido/inválido (deve falhar na validação antes do rename)
+    const invalidStorageStateEnc = "invalid-non-json-content";
+    await assert.rejects(
+      async () => {
+        await repository.saveEncrypted(mkt, profileId, { version: 2 }, invalidStorageStateEnc);
+      },
+      /Falha na validação do arquivo temporário/
+    );
+
+    // O arquivo final storageState.enc original deve continuar existindo no estado anterior (que era null do createProfile)
+    const dataAfterFailedWrite = await repository.load(mkt, profileId);
+    assert.strictEqual(dataAfterFailedWrite?.storageState, null);
+
+    // Tentar gravar um metadata.json válido e verificar persistência
+    await repository.saveMetadata(mkt, profileId, { version: 3, updatedBy: 'test' });
+    const metadataAfterSuccess = await repository.loadMetadata(mkt, profileId);
+    assert.strictEqual(metadataAfterSuccess.version, 3);
+    assert.strictEqual(metadataAfterSuccess.updatedBy, 'test');
+  });
+
+  await t.test('8. Desacoplamento de metadados e credenciais', async () => {
+    const mkt = 'amazon';
+    const profileId = 'decoupled-test';
+    
+    // Criar perfil com estado de sessão válido
+    await profileManager.createProfile(mkt, profileId, 'test-system');
+    const validState = { cookies: [{ name: 'auth', value: '123' }], origins: [] };
+    await repository.save(mkt, profileId, { version: 1 }, validState);
+
+    // Obter data de modificação original do arquivo storageState.enc
+    const profilePath = path.join(tmpDir, mkt, profileId);
+    const storageStatePath = path.join(profilePath, 'storageState.enc');
+    const originalStat = await fs.stat(storageStatePath);
+    
+    // Aguardar um curto período para garantir diferença no timestamp de modificação se o arquivo fosse gravado
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Chamar updateUsage no AuthenticationSessionManager (que agora só deve gravar metadata.json)
+    await sessionManager.updateUsage(mkt, profileId, true);
+
+    // Verificar se o metadado foi atualizado no metadata.json
+    const meta = await repository.loadMetadata(mkt, profileId);
+    assert.strictEqual(meta.authenticationStatus, 'VALID');
+    assert.ok(meta.usageCount > 0);
+
+    // Verificar se o arquivo storageState.enc NÃO foi modificado (o timestamp de modificação mtimeMs deve ser idêntico)
+    const currentStat = await fs.stat(storageStatePath);
+    assert.strictEqual(currentStat.mtimeMs, originalStat.mtimeMs);
+  });
+
+  await t.test('9. Concorrência e Lock no AuthenticationSessionManager', async () => {
+    const mkt = 'amazon';
+    const profileId = 'concurrent-lock-test';
+    
+    await profileManager.createProfile(mkt, profileId, 'test-system');
+    
+    // Executar múltiplas chamadas concorrentes a updateUsage
+    // O lock deve garantir que elas executem uma de cada vez (serializadas) sem colisão e incrementando corretamente o contador
+    const promises = Array.from({ length: 5 }).map(() => 
+      sessionManager.updateUsage(mkt, profileId, true)
+    );
+    
+    await Promise.all(promises);
+
+    const meta = await repository.loadMetadata(mkt, profileId);
+    assert.strictEqual(meta.usageCount, 5);
   });
 });

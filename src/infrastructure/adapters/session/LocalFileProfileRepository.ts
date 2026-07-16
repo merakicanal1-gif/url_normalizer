@@ -14,24 +14,84 @@ export class LocalFileProfileRepository implements IProfileRepository {
     this.baseDir = baseDir || process.env.SESSION_STORAGE_DIR || path.join(process.cwd(), 'data', 'profiles');
   }
 
-  public async save(marketplace: string, profileId: string, metadata: any, storageState: any): Promise<void> {
+  private async safeWriteFile(filePath: string, content: string, validator?: (content: string) => void): Promise<void> {
+    const tmpPath = filePath + '.tmp';
+    await fs.writeFile(tmpPath, content, 'utf8');
+    
+    try {
+      const writtenContent = await fs.readFile(tmpPath, 'utf8');
+      if (validator) {
+        validator(writtenContent);
+      }
+    } catch (err: any) {
+      await fs.rm(tmpPath, { force: true }).catch(() => {});
+      throw new Error(`[SafeWriteFile] Falha na validação do arquivo temporário para ${path.basename(filePath)}: ${err.message}`);
+    }
+
+    await fs.rename(tmpPath, filePath);
+  }
+
+  public async save(marketplace: string, profileId: string, metadata: any, storageState: any, options?: { force?: boolean }): Promise<void> {
     const dir = path.join(this.baseDir, marketplace.toLowerCase(), profileId);
     await fs.mkdir(dir, { recursive: true });
 
     // Criptografar e salvar storageState
     const plaintext = JSON.stringify(storageState);
     const encrypted = this.cryptoHelper.encrypt(plaintext);
-    await fs.writeFile(path.join(dir, 'storageState.enc'), encrypted, 'utf8');
+    
+    const storageStatePath = path.join(dir, 'storageState.enc');
+    await this.safeWriteFile(storageStatePath, encrypted, (content) => {
+      const decrypted = this.cryptoHelper.decrypt(content);
+      JSON.parse(decrypted.plaintext);
+    });
 
-    // Salvar metadata em texto simples
-    await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf8');
+    // Salvar metadata
+    const metadataPath = path.join(dir, 'metadata.json');
+    await this.safeWriteFile(metadataPath, JSON.stringify(metadata, null, 2), (content) => {
+      JSON.parse(content);
+    });
   }
 
-  public async saveEncrypted(marketplace: string, profileId: string, metadata: any, storageStateEnc: string): Promise<void> {
+  public async saveEncrypted(marketplace: string, profileId: string, metadata: any, storageStateEnc: string, options?: { force?: boolean }): Promise<void> {
     const dir = path.join(this.baseDir, marketplace.toLowerCase(), profileId);
     await fs.mkdir(dir, { recursive: true });
-    await fs.writeFile(path.join(dir, 'storageState.enc'), storageStateEnc, 'utf8');
-    await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(metadata, null, 2), 'utf8');
+
+    const storageStatePath = path.join(dir, 'storageState.enc');
+    await this.safeWriteFile(storageStatePath, storageStateEnc, (content) => {
+      const decrypted = this.cryptoHelper.decrypt(content);
+      JSON.parse(decrypted.plaintext);
+    });
+
+    const metadataPath = path.join(dir, 'metadata.json');
+    await this.safeWriteFile(metadataPath, JSON.stringify(metadata, null, 2), (content) => {
+      JSON.parse(content);
+    });
+  }
+
+  public async loadMetadata(marketplace: string, profileId: string): Promise<any | null> {
+    const dir = path.join(this.baseDir, marketplace.toLowerCase(), profileId);
+    const metaPath = path.join(dir, 'metadata.json');
+
+    if (!fsSync.existsSync(metaPath)) {
+      return null;
+    }
+
+    try {
+      const metaContent = await fs.readFile(metaPath, 'utf8');
+      return JSON.parse(metaContent);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  public async saveMetadata(marketplace: string, profileId: string, metadata: any, options?: { force?: boolean }): Promise<void> {
+    const dir = path.join(this.baseDir, marketplace.toLowerCase(), profileId);
+    await fs.mkdir(dir, { recursive: true });
+
+    const metadataPath = path.join(dir, 'metadata.json');
+    await this.safeWriteFile(metadataPath, JSON.stringify(metadata, null, 2), (content) => {
+      JSON.parse(content);
+    });
   }
 
   public async load(marketplace: string, profileId: string): Promise<{ metadata: any; storageState: any } | null> {

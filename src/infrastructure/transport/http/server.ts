@@ -180,7 +180,7 @@ const profileExporter = new EncryptedProfileExporter(profileRepository);
 const profileImporter = new EncryptedProfileImporter(profileRepository);
 const healthChecker = new AuthenticationHealthChecker(sessionFactory);
 const statusResolver = new AuthenticationStatusResolver(profileRepository, profileValidator);
-const sessionManager = new AuthenticationSessionManager(profileRepository);
+const sessionManager = new AuthenticationSessionManager(profileRepository, lockManager);
 const profileInspector = new PlaywrightProfileInspector(
   browserRuntime,
   profileRepository,

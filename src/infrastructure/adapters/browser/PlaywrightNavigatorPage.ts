@@ -1,10 +1,9 @@
-import { Page, BrowserContext } from 'playwright-core';
+import { Page } from 'playwright-core';
 import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 
 export class PlaywrightNavigatorPage implements INavigatorPage {
   constructor(
-    private page: Page,
-    private context?: BrowserContext
+    private page: Page
   ) {}
 
   public async goto(url: string, timeoutMs?: number): Promise<string> {
@@ -28,10 +27,6 @@ export class PlaywrightNavigatorPage implements INavigatorPage {
   public async close(): Promise<void> {
     console.log('[PlaywrightNavigatorPage] [page.close] Fechando página.');
     await this.page.close();
-    if (this.context) {
-      console.log('[PlaywrightNavigatorPage] [context.close] Fechando contexto.');
-      await this.context.close().catch(() => {});
-    }
   }
 
   // Getter para permitir que adaptadores da infraestrutura acessem a API nativa

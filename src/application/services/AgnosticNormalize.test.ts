@@ -88,8 +88,7 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
           } as any,
           dispose: async () => {}
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const service = new NormalizeService(mockResolver, registry, mockSessionFactory, eventBus);
@@ -128,8 +127,7 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
           } as any,
           dispose: async () => {}
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const service = new NormalizeService(mockResolver, registry, mockSessionFactory, eventBus);
@@ -166,8 +164,7 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
           } as any,
           dispose: async () => {}
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const service = new NormalizeService(mockResolver, registry, mockSessionFactory, eventBus);
@@ -204,8 +201,7 @@ test('Sprint 2.0.5 — Agnostic plugin selection based on final navigated page.u
           } as any,
           dispose: async () => {}
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const service = new NormalizeService(mockResolver, registry, mockSessionFactory, eventBus);

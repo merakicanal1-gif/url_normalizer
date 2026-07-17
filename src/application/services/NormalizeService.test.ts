@@ -84,8 +84,7 @@ test('NormalizeService unit & integration tests', async (t) => {
             disposeCalled = true;
           }
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const service = new NormalizeService(mockUrlResolver, mockRegistry, mockSessionFactory, eventBus);
@@ -124,8 +123,7 @@ test('NormalizeService unit & integration tests', async (t) => {
           } as any,
           dispose: async () => {}
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const service = new NormalizeService(mockUrlResolver, mockRegistry, mockSessionFactory, eventBus);
@@ -157,8 +155,7 @@ test('NormalizeService unit & integration tests', async (t) => {
             disposeCalled = true;
           }
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const service = new NormalizeService(mockUrlResolver, mockRegistry, mockSessionFactory, eventBus);

@@ -3,16 +3,15 @@ import { NormalizeService } from '../../../../application/services/NormalizeServ
 import { normalizeSchema } from '../schemas/normalizeSchema.js';
 import { ChallengeDetectedError } from '../../../../domain/errors/ChallengeDetectedError.js';
 import { MarketplaceUnavailableError } from '../../../../domain/errors/MarketplaceUnavailableError.js';
-import { IAuthenticationStatusResolver } from '../../../../domain/ports/IAuthenticationStatusResolver.js';
+import { BrowserNotRunningError } from '../../../../domain/errors/BrowserNotRunningError.js';
 
 export async function normalizeRoutes(
   fastify: FastifyInstance,
   options: { 
     normalizeService: NormalizeService;
-    statusResolver?: IAuthenticationStatusResolver;
   }
 ) {
-  const { normalizeService, statusResolver } = options;
+  const { normalizeService } = options;
 
   fastify.post('/normalize', async (request, reply) => {
     // 1. Validar entrada utilizando Zod de forma explícita
@@ -63,6 +62,15 @@ export async function normalizeRoutes(
     } catch (error: any) {
       const end = performance.now();
       const durationMs = Math.round(end - start);
+
+      if (error instanceof BrowserNotRunningError || error.code === 'BROWSER_NOT_RUNNING') {
+        return reply.status(503).send({
+          success: false,
+          code: 'BROWSER_NOT_RUNNING',
+          message: error.message,
+          documentation: error.documentation || '/docs/browser-setup'
+        });
+      }
       
       fastify.log.error(
         { url, err: error.message, durationMs },
@@ -99,28 +107,38 @@ export async function normalizeRoutes(
         errorCode = 'NAVIGATION_ERROR';
       }
 
-      // 5. Se um perfil de autenticação foi fornecido, anexar o bloco de status
+      // 5. Montagem simplificada e resiliente do authBlock (sem depender de statusResolver)
       let authBlock: any = undefined;
-      if (profileId && statusResolver) {
+      if (profileId) {
         try {
-          let mkt = 'generic';
+          let guessedMarketplace = 'generic';
           const targetUrl = new URL(url);
-          if (targetUrl.hostname.includes('amazon')) mkt = 'amazon';
-          else if (targetUrl.hostname.includes('mercadolivre') || targetUrl.hostname.includes('mercadolibre') || targetUrl.hostname.includes('meli.la')) mkt = 'mercadolivre';
-          else if (targetUrl.hostname.includes('shopee')) mkt = 'shopee';
+          if (targetUrl.hostname.includes('amazon')) guessedMarketplace = 'amazon';
+          else if (targetUrl.hostname.includes('mercadolivre') || targetUrl.hostname.includes('mercadolibre') || targetUrl.hostname.includes('meli.la')) guessedMarketplace = 'mercadolivre';
+          else if (targetUrl.hostname.includes('shopee')) guessedMarketplace = 'shopee';
 
-          const diag = await statusResolver.resolveStatus(mkt, profileId);
+          let status = 'UNKNOWN';
+          let authenticated = true;
+          
+          if (error instanceof ChallengeDetectedError) {
+            authenticated = false;
+            if (error.type === 'LOGIN') {
+              status = 'LOGIN_REQUIRED';
+            } else if (error.type === 'CAPTCHA') {
+              status = 'CAPTCHA_REQUIRED';
+            } else if (error.type === 'WAF') {
+              status = 'BLOCKED';
+            }
+          }
+
           authBlock = {
-            marketplace: diag.marketplace,
-            profileId: diag.profileId,
-            status: diag.status,
-            authenticated: diag.authenticated,
-            recommendedAction: diag.recommendedAction,
-            lastSuccessfulNormalize: diag.lastSuccessfulNormalize,
-            profileVersion: diag.profileVersion
+            marketplace: guessedMarketplace,
+            profileId,
+            status,
+            authenticated
           };
         } catch (e) {
-          // Ignorar erros na resolução do bloco
+          // Fallback seguro em caso de URL malformada
         }
       }
 

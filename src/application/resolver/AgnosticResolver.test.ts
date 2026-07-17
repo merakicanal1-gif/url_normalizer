@@ -59,8 +59,7 @@ test('Sprint 2.0.4 — Agnostic resolver and NormalizeService integrations', asy
         evaluate: async () => ({})
       } as any,
       dispose: async () => {}
-    }),
-    createInteractiveSession: async () => (null as any)
+    })
   };
 
   await t.test('URL direta da Amazon - resolvida imediatamente pelo DirectMarketplaceResolver', async () => {
@@ -170,8 +169,7 @@ test('Sprint 2.0.4 — Agnostic resolver and NormalizeService integrations', asy
           } as any,
           dispose: async () => {}
         };
-      },
-      createInteractiveSession: async () => (null as any)
+      }
     };
 
     const playwrightResolver = new PlaywrightRedirectResolver(playwrightSessionFactoryMock, mockLogger);

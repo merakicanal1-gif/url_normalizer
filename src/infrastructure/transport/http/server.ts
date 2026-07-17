@@ -2,31 +2,21 @@ import Fastify from 'fastify';
 import { createRequire } from 'module';
 import * as path from 'path';
 
-// Ports
-import { IClock } from '../../../domain/ports/IClock.js';
-
 // Domain Models
 import { BrowserProfile } from '../../../domain/models/BrowserProfile.js';
 
 // Services
 import { NormalizeService } from '../../../application/services/NormalizeService.js';
-import { ProfileManager } from '../../../application/services/ProfileManager.js';
-import { AuthenticationService } from '../../../application/services/AuthenticationService.js';
 
 // Adapters
-import { LocalFileProfileRepository } from '../../adapters/session/LocalFileProfileRepository.js';
-import { MemorySessionLockManager } from '../../adapters/session/MemorySessionLockManager.js';
-import { SecureCryptoHelper } from '../../adapters/session/SecureCryptoHelper.js';
 import { SystemClock } from '../../adapters/browser/SystemClock.js';
 import { ApplicationEventBus } from '../../adapters/browser/ApplicationEventBus.js';
 import { PinoLogger } from '../../adapters/browser/PinoLogger.js';
 import { ApplicationEventLogger } from '../../telemetry/ApplicationEventLogger.js';
 import { OpenTelemetryTracer } from '../../telemetry/OpenTelemetryTracer.js';
 import { ApplicationEventTracer } from '../../telemetry/ApplicationEventTracer.js';
-import { PlaywrightBrowserRuntime } from '../../adapters/browser/PlaywrightBrowserRuntime.js';
 import { PlaywrightBrowserSessionFactory } from '../../adapters/browser/PlaywrightBrowserSessionFactory.js';
 import { AuthenticationRegistry } from '../../adapters/browser/AuthenticationRegistry.js';
-import { AuthenticationCleanupScheduler } from '../../adapters/browser/AuthenticationCleanupScheduler.js';
 import { StructuredNormalizeTelemetry } from '../../telemetry/StructuredNormalizeTelemetry.js';
 
 // Resolvers
@@ -48,29 +38,16 @@ import { PlaywrightNavigationObserver } from '../../adapters/browser/PlaywrightN
 import { MercadoLivrePageClassifier } from '../../adapters/marketplaces/mercadolivre/MercadoLivrePageClassifier.js';
 import { MercadoLivreProductPageValidator } from '../../adapters/marketplaces/mercadolivre/MercadoLivreProductPageValidator.js';
 import { MercadoLivreProductExtractor } from '../../adapters/marketplaces/mercadolivre/MercadoLivreProductExtractor.js';
-import { PlaywrightBrowserLaunchPolicy } from '../../adapters/browser/PlaywrightBrowserLaunchPolicy.js';
-import { BrowserContextFactory } from '../../adapters/browser/BrowserContextFactory.js';
 
-// Adapters de Perfil
-import { EncryptedProfileExporter } from '../../adapters/profile/EncryptedProfileExporter.js';
-import { EncryptedProfileImporter } from '../../adapters/profile/EncryptedProfileImporter.js';
-import { ProfileIntegrityValidator } from '../../adapters/profile/ProfileIntegrityValidator.js';
-import { AuthenticationHealthChecker } from '../../adapters/profile/AuthenticationHealthChecker.js';
-import { AuthenticationStatusResolver } from '../../adapters/profile/AuthenticationStatusResolver.js';
-import { AuthenticationSessionManager } from '../../adapters/profile/AuthenticationSessionManager.js';
-import { PlaywrightProfileInspector } from '../../adapters/profile/PlaywrightProfileInspector.js';
-
-// Serviços de Perfil
-import { ProfileExportService } from '../../../application/services/ProfileExportService.js';
-import { ProfileImportService } from '../../../application/services/ProfileImportService.js';
-import { ProfileValidationService } from '../../../application/services/ProfileValidationService.js';
-import { AuthenticationSessionService } from '../../../application/services/AuthenticationSessionService.js';
-import { AuthenticationHealthService } from '../../../application/services/AuthenticationHealthService.js';
+// Novas classes do Navegador Persistente Local
+import { BrowserConfig } from '../../adapters/browser/BrowserConfig.js';
+import { LocalBrowserRuntime } from '../../adapters/browser/LocalBrowserRuntime.js';
+import { BrowserHealthService } from '../../../application/services/BrowserHealthService.js';
 
 // Routes
 import { healthRoutes } from './routes/health.js';
 import { normalizeRoutes } from './routes/normalize.js';
-import { profileRoutes } from './routes/profiles.js';
+import { browserRoutes } from './routes/browser.js';
 
 // Observability Runtime Boot
 import { OpenTelemetryRuntime } from '../../telemetry/OpenTelemetryRuntime.js';
@@ -121,11 +98,6 @@ const telemetryTracer = new OpenTelemetryTracer();
 const eventTracer = new ApplicationEventTracer(eventBus, telemetryTracer);
 eventTracer.start();
 
-const cryptoHelper = new SecureCryptoHelper();
-const profileRepository = new LocalFileProfileRepository(cryptoHelper);
-const lockManager = new MemorySessionLockManager();
-const profileManager = new ProfileManager(profileRepository, lockManager, fastify.log, eventBus);
-
 // Configuração do perfil de navegador realista
 const browserProfile: BrowserProfile = {
   locale: 'pt-BR',
@@ -140,12 +112,12 @@ const browserProfile: BrowserProfile = {
   }
 };
 
-const launchPolicy = new PlaywrightBrowserLaunchPolicy();
-const contextFactory = new BrowserContextFactory(launchPolicy);
+// 3.1. Inicializar Runtime e Health do Navegador Persistente Local
+const browserConfig = new BrowserConfig();
+const browserRuntime = new LocalBrowserRuntime(browserConfig, eventBus, fastify.log);
+const browserHealthService = new BrowserHealthService(browserRuntime);
 
-const browserRuntime = new PlaywrightBrowserRuntime(fastify.log, launchPolicy);
-fastify.log.info(`[Server Bootstrap] browserRuntime criada no server.ts com runtimeId=${browserRuntime.runtimeId}. Ref: [PlaywrightBrowserRuntime@${Math.random().toString(36).substring(2, 8)}]`);
-const sessionFactory = new PlaywrightBrowserSessionFactory(browserRuntime, profileManager, browserProfile, contextFactory, fastify.log);
+const sessionFactory = new PlaywrightBrowserSessionFactory(browserRuntime, null, browserProfile, null, fastify.log);
 
 const marketplaceRegistry = new MarketplaceRegistry();
 marketplaceRegistry.register(new AmazonPlugin(fastify.log));
@@ -161,35 +133,9 @@ marketplaceRegistry.register(
 marketplaceRegistry.register(new ShopeePlugin(fastify.log));
 marketplaceRegistry.registerFallback(new GenericPlugin());
 
+// Mantemos o AuthenticationRegistry para documentar regras dos marketplaces localmente
 const authenticationRegistry = new AuthenticationRegistry(fastify.log);
-const authenticationCleanupScheduler = new AuthenticationCleanupScheduler(authenticationRegistry, eventBus, contextFactory, fastify.log);
-const authenticationService = new AuthenticationService(
-  browserRuntime,
-  authenticationRegistry,
-  eventBus,
-  marketplaceRegistry,
-  profileManager,
-  browserProfile,
-  contextFactory,
-  fastify.log
-);
 
-// Instanciar adaptadores de perfil
-const profileValidator = new ProfileIntegrityValidator(profileRepository, cryptoHelper);
-const profileExporter = new EncryptedProfileExporter(profileRepository);
-const profileImporter = new EncryptedProfileImporter(profileRepository);
-const healthChecker = new AuthenticationHealthChecker(sessionFactory);
-const statusResolver = new AuthenticationStatusResolver(profileRepository, profileValidator);
-const sessionManager = new AuthenticationSessionManager(profileRepository, lockManager);
-const profileInspector = new PlaywrightProfileInspector(
-  browserRuntime,
-  profileRepository,
-  contextFactory,
-  cryptoHelper,
-  marketplaceRegistry,
-  browserProfile,
-  fastify.log
-);
 const normalizeTelemetry = new StructuredNormalizeTelemetry(pinoLogger);
 
 // Resolvedores de URL e Normalização
@@ -208,41 +154,26 @@ const compositeUrlResolver = new CompositeUrlResolver(
   normalizeTelemetry
 );
 
-// Instanciar serviços de aplicação de perfil
-const exportService = new ProfileExportService(profileExporter);
-const importService = new ProfileImportService(profileImporter, profileValidator);
-const validationService = new ProfileValidationService(profileValidator);
-const sessionService = new AuthenticationSessionService(statusResolver);
-const healthService = new AuthenticationHealthService(marketplaceRegistry, healthChecker, sessionManager, statusResolver);
-
 const normalizeService = new NormalizeService(
   compositeUrlResolver,
   marketplaceRegistry,
   sessionFactory,
   eventBus,
-  sessionManager,
   30000,
-  normalizeTelemetry,
-  statusResolver
+  normalizeTelemetry
 );
 
 // 4. Registro de Rotas
-fastify.register(healthRoutes, { browserRuntime });
-fastify.register(normalizeRoutes, { normalizeService, statusResolver });
-fastify.register(profileRoutes, {
-  profileManager,
-  authenticationService,
-  exportService,
-  importService,
-  validationService,
-  sessionService,
-  healthService,
-  profileInspector
+fastify.register(healthRoutes, { browserHealthService });
+fastify.register(normalizeRoutes, { normalizeService });
+fastify.register(browserRoutes, {
+  browserRuntime,
+  browserHealthService,
+  marketplaceRegistry
 });
 
 // 5. Hooks de Inicialização e Encerramento (Graceful Shutdown)
 fastify.addHook('onClose', async () => {
-  authenticationCleanupScheduler.stop();
   await browserRuntime.shutdown();
   await OpenTelemetryRuntime.forceFlush();
   await OpenTelemetryRuntime.shutdown();
@@ -260,8 +191,18 @@ const gracefulShutdown = async (signal: string) => {
   }
 };
 
+const handleFatalError = async (type: string, err: any) => {
+  fastify.log.error(err, `Erro fatal não tratado no processo do Node: ${type}`);
+  try {
+    await browserRuntime.shutdown();
+  } catch (e) {}
+  process.exit(1);
+};
+
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+process.on('uncaughtException', (err) => handleFatalError('uncaughtException', err));
+process.on('unhandledRejection', (reason) => handleFatalError('unhandledRejection', reason));
 
 // 6. Bootstrap do Servidor
 const PORT = Number(process.env.PORT) || 3006;
@@ -269,14 +210,14 @@ const HOST = process.env.HOST || '0.0.0.0';
 
 const start = async () => {
   let runtimeStarted = false;
-  let schedulerStarted = false;
 
   try {
-    await browserRuntime.start();
-    runtimeStarted = true;
-
-    authenticationCleanupScheduler.start();
-    schedulerStarted = true;
+    if (browserConfig.autoStartBrowser) {
+      await browserRuntime.start();
+      runtimeStarted = true;
+    } else {
+      fastify.log.info('[server] BROWSER_MODE is cdp and AUTO_START_BROWSER is false. Skipping auto-start connection at boot.');
+    }
 
     await fastify.ready();
 
@@ -293,11 +234,6 @@ const start = async () => {
   } catch (err) {
     fastify.log.error(err, 'Erro fatal no bootstrap do servidor. Iniciando limpeza de recursos...');
     
-    if (schedulerStarted) {
-      try {
-        authenticationCleanupScheduler.stop();
-      } catch (e) {}
-    }
     if (runtimeStarted) {
       try {
         await browserRuntime.shutdown();

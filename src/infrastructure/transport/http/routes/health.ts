@@ -1,21 +1,20 @@
 import { FastifyInstance } from 'fastify';
-import { IBrowserRuntime } from '../../../../domain/ports/IBrowserRuntime.js';
+import { BrowserHealthService } from '../../../../application/services/BrowserHealthService.js';
 
 export async function healthRoutes(
   fastify: FastifyInstance,
-  options: { browserRuntime: IBrowserRuntime }
+  options: { browserHealthService: BrowserHealthService }
 ) {
-  const { browserRuntime } = options;
-  fastify.log.info(`[healthRoutes] Inicializado com runtimeId=${(browserRuntime as any).runtimeId}`);
+  const { browserHealthService } = options;
 
-  // Compatibilidade com contrato legado
+  // Compatibilidade com contrato legado, enriquecido pelo BrowserHealthService
   fastify.get('/health', async (_request, reply) => {
-    const check = await browserRuntime.healthCheck();
-    const isOk = check.workerAlive && check.interactiveAlive;
+    const check = await browserHealthService.getStatus();
+    const isOk = check.running && check.contextOpen;
     return reply.status(isOk ? 200 : 503).send({
       status: isOk ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
+      uptime: check.uptime,
       details: check
     });
   });
@@ -29,14 +28,14 @@ export async function healthRoutes(
     });
   });
 
-  // Healthcheck de readiness para o processamento de normalização (depende do worker)
+  // Healthcheck de readiness para o processamento de normalização (depende do worker/contexto aberto)
   fastify.get('/health/ready', async (_request, reply) => {
-    const check = await browserRuntime.healthCheck();
-    const isReady = check.workerAlive;
+    const check = await browserHealthService.getStatus();
+    const isReady = check.running && check.contextOpen;
     return reply.status(isReady ? 200 : 503).send({
       status: isReady ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
-      uptime: process.uptime(),
+      uptime: check.uptime,
       details: check
     });
   });

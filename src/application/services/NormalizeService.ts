@@ -1,16 +1,13 @@
 import * as crypto from 'node:crypto';
-import { execSync } from 'node:child_process';
 import { IUrlResolver } from '../../domain/ports/IUrlResolver.js';
 import { MarketplaceRegistry } from '../registry/MarketplaceRegistry.js';
 import { NormalizedProduct } from '../../domain/models/Product.js';
 import { IBrowserSessionFactory } from '../../domain/ports/IBrowserSessionFactory.js';
 import { IApplicationEventBus } from '../../domain/ports/IApplicationEventBus.js';
 import { MarketplaceHostRegistry } from '../../domain/services/MarketplaceHostRegistry.js';
-import { IAuthenticationSessionManager } from '../../domain/ports/IAuthenticationSessionManager.js';
 import { ChallengeDetectedError } from '../../domain/errors/ChallengeDetectedError.js';
 import { SessionStatus } from '../../domain/models/AuthenticationSessionStatus.js';
 import { INormalizeTelemetry } from '../../domain/ports/INormalizeTelemetry.js';
-import { IAuthenticationStatusResolver } from '../../domain/ports/IAuthenticationStatusResolver.js';
 import { NoOpNormalizeTelemetry } from '../../infrastructure/telemetry/NoOpNormalizeTelemetry.js';
 
 export class NormalizeService {
@@ -21,10 +18,8 @@ export class NormalizeService {
     private registry: MarketplaceRegistry,
     private sessionFactory: IBrowserSessionFactory,
     private eventBus: IApplicationEventBus,
-    private sessionManager?: IAuthenticationSessionManager,
     private defaultTimeoutMs: number = 30000,
-    telemetry?: INormalizeTelemetry,
-    private statusResolver?: IAuthenticationStatusResolver
+    telemetry?: INormalizeTelemetry
   ) {
     this.telemetry = telemetry || new NoOpNormalizeTelemetry();
   }
@@ -51,33 +46,24 @@ export class NormalizeService {
         initialMarketplace = 'shopee';
       }
 
-      // Resolver status de autenticação antes
-      let authStatusBefore: SessionStatus = 'UNKNOWN';
-      if (profileId && this.statusResolver) {
-        try {
-          const diag = await this.statusResolver.resolveStatus(initialMarketplace, profileId);
-          authStatusBefore = diag.status;
-        } catch (e) {}
-      }
-
       // Notificar início da telemetria
       this.telemetry.begin({
         originalUrl: originalUrlString,
         profileId,
         runtime: 'worker',
         browserMode: 'headless',
-        authStatusBefore
+        authStatusBefore: 'UNKNOWN'
       });
       this.telemetry.estimatedMarketplace(initialMarketplace);
 
-      // 2. Solicitar sessão worker ao PlaywrightBrowserSessionFactory imediatamente
+      // 2. Solicitar sessão worker
       const session = await this.sessionFactory.createSession(initialMarketplace, profileId);
       this.telemetry.browserCreated({ runtime: 'worker', browserMode: 'headless' });
 
       // Logs temporários de diagnóstico (Audit) e leitura de cookies
       const rawPage = (session.page as any).getRawPage?.();
       const cookies = rawPage ? await rawPage.context().cookies() : [];
-      console.log(`[DIAGNOSTIC] [NormalizeService] marketplaceRecebido="${initialMarketplace}" profileId="${profileId || 'undefined'}" urlInicial="${originalUrlString}" BrowserContextReutilizadoOuCriado=true storageStateCarregado=${cookies.length > 0} cookiesCarregados=${cookies.length}`);
+      console.log(`[DIAGNOSTIC] [NormalizeService] marketplaceRecebido="${initialMarketplace}" profileId="${profileId || 'undefined'}" urlInicial="${originalUrlString}" BrowserContextReutilizadoOuCriado=true cookiesCarregados=${cookies.length}`);
 
       if (profileId && cookies.length > 0) {
         this.telemetry.storageStateLoaded({ profileId, cookiesCount: cookies.length });
@@ -126,11 +112,10 @@ export class NormalizeService {
       let activeSession = session;
 
       try {
-        // 4. Resolver redirecionamentos iniciais reutilizando a mesma sessão/página autenticada
+        // 4. Resolver redirecionamentos iniciais reutilizando a mesma sessão/página
         const resolved = await this.urlResolver.resolve(originalUrl, this.defaultTimeoutMs, profileId, session.page);
         const finalUrl = new URL(resolved.finalUrl);
         console.log(`[NormalizeService] resolvedUrl="${resolved.finalUrl}" resolver="${resolved.metadata.resolver}"`);
-        console.log(`[DIAGNOSTIC] [NormalizeService] marketplaceUtilizadoPeloRedirectResolver="${resolved.metadata.resolver === 'PlaywrightRedirectResolver' ? initialMarketplace : 'none'}"`);
 
         // Identificar o marketplace final a partir da URL resolvida
         let finalMarketplace = 'generic';
@@ -142,8 +127,7 @@ export class NormalizeService {
           finalMarketplace = 'shopee';
         }
 
-        // Se o resolvedor redirecionou para um marketplace diferente do estimado inicialmente,
-        // recriamos a sessão para o marketplace correto para carregar suas respectivas credenciais.
+        // Se o resolvedor redirecionou para um marketplace diferente, recria a página
         if (finalMarketplace !== initialMarketplace) {
           console.log(`[DIAGNOSTIC] [NormalizeService] Mudança de marketplace detectada: ${initialMarketplace} -> ${finalMarketplace}. Recriando sessão...`);
           await session.dispose().catch(() => {});
@@ -152,14 +136,13 @@ export class NormalizeService {
           
           const newRawPage = (activeSession.page as any).getRawPage?.();
           const newCookies = newRawPage ? await newRawPage.context().cookies() : [];
-          console.log(`[DIAGNOSTIC] [NormalizeService] NovoBrowserContextCriado=true storageStateCarregado=${newCookies.length > 0} cookiesCarregados=${newCookies.length}`);
           
           if (profileId && newCookies.length > 0) {
             this.telemetry.storageStateLoaded({ profileId, cookiesCount: newCookies.length });
           }
         }
 
-        // 5. Garantir que a página do activeSession está na URL final resolvida
+        // 5. Garantir que a página está na URL final resolvida
         const currentUrlStr = activeSession.page.getFinalUrl();
         if (currentUrlStr !== resolved.finalUrl) {
           await activeSession.page.goto(resolved.finalUrl, this.defaultTimeoutMs);
@@ -168,11 +151,6 @@ export class NormalizeService {
         // Obter a URL real final da navegação na página (após redirecionamentos via JS/Client)
         const actualFinalUrlStr = activeSession.page.getFinalUrl();
         const actualFinalUrl = new URL(actualFinalUrlStr);
-
-        const pageUrlStr = (activeSession.page as any).page?.url?.() || (activeSession.page as any).getRawPage?.()?.url?.() || actualFinalUrlStr;
-        console.log(`[NormalizeService] page.url()="${pageUrlStr}" page.getFinalUrl()="${actualFinalUrlStr}" São iguais?=${pageUrlStr === actualFinalUrlStr}`);
-        console.log(`[NormalizeService] urlUsadaParaDetectarMarketplace="${actualFinalUrlStr}"`);
-        console.log(`[DIAGNOSTIC] [NormalizeService] urlFinal="${actualFinalUrlStr}"`);
 
         // Validar se o host final de fato pertence a um marketplace suportado
         if (!MarketplaceHostRegistry.isKnownMarketplace(actualFinalUrl.hostname)) {
@@ -183,17 +161,11 @@ export class NormalizeService {
         const plugin = this.registry.resolve(actualFinalUrl);
         const marketplace = plugin.getMarketplaceName();
         this.telemetry.resolvedMarketplace(marketplace);
-        console.log(`[NormalizeService] marketplaceFinal="${marketplace}" pluginFinal="${plugin.constructor.name}"`);
 
-        // 7. Executar extração polimórfica pelo plugin correspondente
+        // 7. Executar extração pelo plugin correspondente
         const product = await plugin.normalize(activeSession.page, actualFinalUrl);
-        console.log(`[NormalizeService] idProduto="${product.id_produto}" titulo="${product.titulo}" imagem="${product.imagem}" urlFinalResposta="${product.url_final}"`);
 
         const durationMs = Math.round(performance.now() - startTime);
-
-        if (profileId && this.sessionManager) {
-          await this.sessionManager.updateUsage(marketplace, profileId, true);
-        }
 
         // Registrar resultado da telemetria
         this.telemetry.normalizeResult({
@@ -204,15 +176,7 @@ export class NormalizeService {
           image: product.imagem
         });
 
-        // Registrar status de autenticação depois (sucesso)
-        let authStatusAfter: SessionStatus = 'UNKNOWN';
-        if (profileId && this.statusResolver) {
-          try {
-            const diag = await this.statusResolver.resolveStatus(marketplace, profileId);
-            authStatusAfter = diag.status;
-          } catch (e) {}
-        }
-        this.telemetry.finished(product.url_final, durationMs, authStatusAfter);
+        this.telemetry.finished(product.url_final, durationMs, 'UNKNOWN');
 
         // Publicar evento NORMALIZE_COMPLETED
         this.eventBus.publish({
@@ -274,66 +238,25 @@ export class NormalizeService {
       } catch (err: any) {
         const durationMs = Math.round(performance.now() - startTime);
 
-        if (profileId && this.sessionManager) {
-          let status: SessionStatus = 'UNKNOWN';
-          if (err instanceof ChallengeDetectedError) {
-            if (err.type === 'LOGIN') {
-              status = 'LOGIN_REQUIRED';
-              this.eventBus.publish({
-                eventId: crypto.randomUUID(),
-                event: 'LOGIN_REQUIRED',
-                version: 1,
-                occurredAt: new Date().toISOString(),
-                source: 'NormalizeService',
-                traceId: traceId || null,
-                requestId: requestId || null,
-                sessionId: null,
-                marketplace: initialMarketplace,
-                profileId,
-                payload: { marketplace: initialMarketplace, profileId, reason: err.message }
-              });
-              this.eventBus.publish({
-                eventId: crypto.randomUUID(),
-                event: 'SESSION_EXPIRED',
-                version: 1,
-                occurredAt: new Date().toISOString(),
-                source: 'NormalizeService',
-                traceId: traceId || null,
-                requestId: requestId || null,
-                sessionId: null,
-                marketplace: initialMarketplace,
-                profileId,
-                payload: { marketplace: initialMarketplace, profileId, reason: 'Session expired, login required' }
-              });
-            } else if (err.type === 'CAPTCHA' || err.type === 'WAF') {
-              status = 'CAPTCHA_REQUIRED';
-              this.eventBus.publish({
-                eventId: crypto.randomUUID(),
-                event: 'CAPTCHA_REQUIRED',
-                version: 1,
-                occurredAt: new Date().toISOString(),
-                source: 'NormalizeService',
-                traceId: traceId || null,
-                requestId: requestId || null,
-                sessionId: null,
-                marketplace: initialMarketplace,
-                profileId,
-                payload: { marketplace: initialMarketplace, profileId, reason: err.message }
-              });
-            }
+        if (profileId && err instanceof ChallengeDetectedError) {
+          if (err.type === 'LOGIN') {
+            this.eventBus.publish({
+              eventId: crypto.randomUUID(),
+              event: 'LOGIN_REQUIRED',
+              version: 1,
+              occurredAt: new Date().toISOString(),
+              source: 'NormalizeService',
+              traceId: traceId || null,
+              requestId: requestId || null,
+              sessionId: null,
+              marketplace: initialMarketplace,
+              profileId,
+              payload: { marketplace: initialMarketplace, profileId, reason: err.message }
+            });
           }
-          await this.sessionManager.updateUsage(initialMarketplace, profileId, false, status, err.message);
         }
 
-        // Registrar status de autenticação depois (falha)
-        let authStatusAfter: SessionStatus = 'UNKNOWN';
-        if (profileId && this.statusResolver) {
-          try {
-            const diag = await this.statusResolver.resolveStatus(initialMarketplace, profileId);
-            authStatusAfter = diag.status;
-          } catch (e) {}
-        }
-        this.telemetry.failed(err.message || 'Erro de normalização', durationMs, authStatusAfter);
+        this.telemetry.failed(err.message || 'Erro de normalização', durationMs, 'UNKNOWN');
 
         // Publicar evento NORMALIZATION_FAILED caso falhe
         this.eventBus.publish({
@@ -362,4 +285,3 @@ export class NormalizeService {
     });
   }
 }
-

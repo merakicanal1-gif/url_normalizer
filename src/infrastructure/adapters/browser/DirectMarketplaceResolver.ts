@@ -4,7 +4,11 @@ import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 
 export class DirectMarketplaceResolver implements IUrlResolver {
   public canResolve(url: URL): boolean {
-    return MarketplaceHostRegistry.isKnownMarketplace(url.hostname);
+    const hostname = url.hostname;
+    const isAffiliate = MarketplaceHostRegistry.isAmazonAffiliate(hostname) ||
+                        MarketplaceHostRegistry.isMercadoLivreAffiliate(hostname) ||
+                        MarketplaceHostRegistry.isShopeeAffiliate(hostname);
+    return MarketplaceHostRegistry.isKnownMarketplace(hostname) && !isAffiliate;
   }
 
   public async resolve(url: URL, _timeoutMs?: number, profileId?: string, sessionPage?: INavigatorPage): Promise<ResolvedUrl> {

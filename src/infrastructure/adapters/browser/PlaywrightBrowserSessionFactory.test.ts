@@ -32,7 +32,10 @@ test('PlaywrightBrowserSessionFactory tests', async (t) => {
     closePage: async (page: any) => {
       closePageCalledWith = page;
     },
-    restart: async () => {}
+    restart: async () => {},
+    connect: async () => {},
+    disconnect: async () => {},
+    closeAllPages: async () => {}
   };
 
   await t.test('cria sessao gerenciada e executa dispose', async () => {

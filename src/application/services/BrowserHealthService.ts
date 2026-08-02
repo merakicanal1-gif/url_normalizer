@@ -54,7 +54,6 @@ export class BrowserHealthService {
       healthy,
       browserConnected,
       contextAlive,
-      contextOpen: contextAlive,
       persistent: config.browserMode === 'persistent',
       browserVersion,
       managedPages: this.browserRuntime.getManagedPagesCount(),

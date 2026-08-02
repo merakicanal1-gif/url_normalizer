@@ -16,10 +16,18 @@ export class MercadoLivrePageClassifier implements IPageClassifier {
     const evidences: string[] = [];
     let pageType: MarketplacePageType = 'UNKNOWN';
 
-    // 1. Verificar bloqueios de segurança (WAF e CAPTCHA)
+    // 1. Verificar bloqueios de segurança (WAF, Login e CAPTCHA)
     if (lowerHtml.includes('token.awswaf.com') || lowerHtml.includes('awswafintegration')) {
       pageType = 'WAF_PAGE';
       evidences.push('Detected AWS WAF tokens/scripts in HTML content');
+    } else if (
+      lowerUrl.includes('/ap/signin') ||
+      lowerUrl.includes('/login') ||
+      lowerUrl.includes('/signin') ||
+      lowerUrl.includes('/gz/account-verification')
+    ) {
+      pageType = 'LOGIN_PAGE';
+      evidences.push('URL indicates authentication page');
     } else if (
       lowerHtml.includes('captchacharacters') ||
       lowerHtml.includes('/errors/validatecaptcha') ||
@@ -29,14 +37,6 @@ export class MercadoLivrePageClassifier implements IPageClassifier {
     ) {
       pageType = 'CAPTCHA_PAGE';
       evidences.push('Detected robot check / validatecaptcha in HTML or Title');
-    } else if (
-      lowerUrl.includes('/ap/signin') ||
-      lowerUrl.includes('/login') ||
-      lowerUrl.includes('/signin') ||
-      lowerUrl.includes('/gz/account-verification')
-    ) {
-      pageType = 'LOGIN_PAGE';
-      evidences.push('URL indicates authentication page');
     }
 
     // 2. Extrair dados estruturais para detecção posterior e pontuação de PDP

@@ -16,7 +16,7 @@ test('Sprint 2.0.6A — Production configurations, security checks and health ch
         headless: false,
         lastRestart: null,
         uptime: 10,
-        contextOpen: true
+        contextAlive: true
       })
     } as any;
 
@@ -29,14 +29,14 @@ test('Sprint 2.0.6A — Production configurations, security checks and health ch
     const bodyLive = JSON.parse(resLive.body);
     assert.strictEqual(bodyLive.status, 'ok');
 
-    // Testar /health/ready (200 ok se running e contextOpen forem true)
+    // Testar /health/ready (200 ok se running e contextAlive forem true)
     const resReady = await fastify.inject({ method: 'GET', url: '/health/ready' });
     assert.strictEqual(resReady.statusCode, 200);
     const bodyReady = JSON.parse(resReady.body);
     assert.strictEqual(bodyReady.status, 'ok');
     assert.strictEqual(bodyReady.details.running, true);
 
-    // Testar /health/ready degraded (503 se running ou contextOpen for false)
+    // Testar /health/ready degraded (503 se running ou contextAlive for false)
     const degradedHealthMock = {
       getStatus: async () => ({
         running: false,
@@ -48,7 +48,7 @@ test('Sprint 2.0.6A — Production configurations, security checks and health ch
         headless: false,
         lastRestart: null,
         uptime: 10,
-        contextOpen: false
+        contextAlive: false
       })
     } as any;
     const fastifyDegraded = Fastify();

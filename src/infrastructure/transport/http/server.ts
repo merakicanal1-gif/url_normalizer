@@ -117,7 +117,7 @@ const browserConfig = new BrowserConfig();
 const browserRuntime = new LocalBrowserRuntime(browserConfig, eventBus, fastify.log);
 const browserHealthService = new BrowserHealthService(browserRuntime);
 
-const sessionFactory = new PlaywrightBrowserSessionFactory(browserRuntime, null, browserProfile, null, fastify.log);
+const sessionFactory = new PlaywrightBrowserSessionFactory(browserRuntime, fastify.log);
 
 const marketplaceRegistry = new MarketplaceRegistry();
 marketplaceRegistry.register(new AmazonPlugin(fastify.log));

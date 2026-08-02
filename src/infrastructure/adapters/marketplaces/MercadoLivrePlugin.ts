@@ -131,6 +131,19 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
             throw new Error('Estado inconsistente: inspection não definida no DECIDE.');
           }
 
+          if (inspection.pageType === 'WAF_PAGE' || inspection.pageType === 'CAPTCHA_PAGE' || inspection.pageType === 'LOGIN_PAGE') {
+            const redirectUrl = this.getRedirectUrlFromParams(rawPage.url());
+            if (redirectUrl && redirectUrl !== rawPage.url()) {
+              this.logger.info(`[STATE_MACHINE] Bloqueio ou tela de login detectada (${inspection.pageType}). URL de redirecionamento encontrada: "${redirectUrl}". Navegando diretamente...`);
+              currentUrl = new URL(redirectUrl);
+              await rawPage.goto(redirectUrl, { timeout: 15000 }).catch((e) => {
+                this.logger.error(`[STATE_MACHINE] Erro ao navegar para URL de redirecionamento: ${e.message}`);
+              });
+              state = NavigationState.WAIT_DOM;
+              break;
+            }
+          }
+
           if (inspection.pageType === 'WAF_PAGE') {
             throw new ChallengeDetectedError(`Bloqueio de WAF detectado: ${inspection.evidences.join(', ')}`, 'WAF');
           }
@@ -285,5 +298,28 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
     const duration = performance.now() - startTime;
     this.logger.info(`[STATE_MACHINE] Normalização concluída em ${duration.toFixed(2)}ms.`);
     return (this as any)._normalizedProduct;
+  }
+
+  private getRedirectUrlFromParams(urlStr: string): string | null {
+    try {
+      const urlObj = new URL(urlStr);
+      const paramsToCheck = ['go', 'redirect', 'redirect_url', 'url'];
+      for (const param of paramsToCheck) {
+        const value = urlObj.searchParams.get(param);
+        if (value) {
+          const decoded = decodeURIComponent(value);
+          if (decoded.startsWith('http') && (decoded.includes('mercadolivre.com') || decoded.includes('mercadolibre.com') || decoded.includes('meli.la'))) {
+            try {
+              const targetUrlObj = new URL(decoded);
+              // Remove query parameters and hashes to avoid tracking blocks/redirects
+              return targetUrlObj.origin + targetUrlObj.pathname;
+            } catch (e) {
+              return decoded;
+            }
+          }
+        }
+      }
+    } catch (e) {}
+    return null;
   }
 }

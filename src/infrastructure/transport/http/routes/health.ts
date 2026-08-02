@@ -10,7 +10,7 @@ export async function healthRoutes(
   // Compatibilidade com contrato legado, enriquecido pelo BrowserHealthService
   fastify.get('/health', async (_request, reply) => {
     const check = await browserHealthService.getStatus();
-    const isOk = check.running && check.contextOpen;
+    const isOk = check.running && check.contextAlive;
     return reply.status(isOk ? 200 : 503).send({
       status: isOk ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),
@@ -31,7 +31,7 @@ export async function healthRoutes(
   // Healthcheck de readiness para o processamento de normalização (depende do worker/contexto aberto)
   fastify.get('/health/ready', async (_request, reply) => {
     const check = await browserHealthService.getStatus();
-    const isReady = check.running && check.contextOpen;
+    const isReady = check.running && check.contextAlive;
     return reply.status(isReady ? 200 : 503).send({
       status: isReady ? 'ok' : 'degraded',
       timestamp: new Date().toISOString(),

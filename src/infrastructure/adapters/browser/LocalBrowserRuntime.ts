@@ -120,26 +120,69 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
       this.browser.on('disconnected', () => {
         this.logger.warn?.('[LocalBrowserRuntime] O Chromium browser via CDP foi desconectado.');
         this.isRunning = false;
+        
         this.eventBus.publish({
           eventId: crypto.randomUUID(),
-          event: 'BrowserDisconnected',
+          event: 'BROWSER_CONTEXT_CLOSED',
           version: 1,
           occurredAt: new Date().toISOString(),
           source: 'LocalBrowserRuntime',
-          payload: { reason: 'CDP browser disconnected' }
+          traceId: null,
+          requestId: null,
+          sessionId: null,
+          marketplace: null,
+          profileId: null,
+          payload: { contextId: 'default' }
         });
+
+        this.eventBus.publish({
+          eventId: crypto.randomUUID(),
+          event: 'BROWSER_STOPPED',
+          version: 1,
+          occurredAt: new Date().toISOString(),
+          source: 'LocalBrowserRuntime',
+          traceId: null,
+          requestId: null,
+          sessionId: null,
+          marketplace: null,
+          profileId: null,
+          payload: { type: this.config.headless ? 'headless' : 'headful' }
+        });
+      });
+
+      const browserVersion = this.browser ? (this.browser.version() || 'unknown') : 'unknown';
+
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        event: 'BROWSER_STARTED',
+        version: 1,
+        occurredAt: new Date().toISOString(),
+        source: 'LocalBrowserRuntime',
+        traceId: null,
+        requestId: null,
+        sessionId: null,
+        marketplace: null,
+        profileId: null,
+        payload: { 
+          type: this.config.headless ? 'headless' : 'headful',
+          version: browserVersion
+        }
       });
 
       this.eventBus.publish({
         eventId: crypto.randomUUID(),
-        event: 'BrowserStarted',
+        event: 'BROWSER_CONTEXT_CREATED',
         version: 1,
         occurredAt: new Date().toISOString(),
         source: 'LocalBrowserRuntime',
+        traceId: null,
+        requestId: null,
+        sessionId: null,
+        marketplace: null,
+        profileId: null,
         payload: { 
-          persistent: true,
-          mode: 'cdp',
-          endpoint: this.config.cdpEndpoint
+          type: this.config.headless ? 'headless' : 'headful',
+          contextId: 'default'
         }
       });
 
@@ -170,11 +213,30 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
 
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
-      event: 'BrowserDisconnected',
+      event: 'BROWSER_CONTEXT_CLOSED',
       version: 1,
       occurredAt: new Date().toISOString(),
       source: 'LocalBrowserRuntime',
-      payload: { reason: 'Manual disconnect request' }
+      traceId: null,
+      requestId: null,
+      sessionId: null,
+      marketplace: null,
+      profileId: null,
+      payload: { contextId: 'default' }
+    });
+
+    this.eventBus.publish({
+      eventId: crypto.randomUUID(),
+      event: 'BROWSER_STOPPED',
+      version: 1,
+      occurredAt: new Date().toISOString(),
+      source: 'LocalBrowserRuntime',
+      traceId: null,
+      requestId: null,
+      sessionId: null,
+      marketplace: null,
+      profileId: null,
+      payload: { type: this.config.headless ? 'headless' : 'headful' }
     });
 
     this.logger.info('[LocalBrowserRuntime] Desconexão concluída com sucesso.');
@@ -214,26 +276,70 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
         this.context.browser()?.on('disconnected', () => {
           this.logger.warn?.('[LocalBrowserRuntime] O Chromium browser foi desconectado.');
           this.isRunning = false;
+          
           this.eventBus.publish({
             eventId: crypto.randomUUID(),
-            event: 'BrowserDisconnected',
+            event: 'BROWSER_CONTEXT_CLOSED',
             version: 1,
             occurredAt: new Date().toISOString(),
             source: 'LocalBrowserRuntime',
-            payload: { reason: 'Chromium process disconnected' }
+            traceId: null,
+            requestId: null,
+            sessionId: null,
+            marketplace: null,
+            profileId: null,
+            payload: { contextId: 'persistent-context' }
           });
+
+          this.eventBus.publish({
+            eventId: crypto.randomUUID(),
+            event: 'BROWSER_STOPPED',
+            version: 1,
+            occurredAt: new Date().toISOString(),
+            source: 'LocalBrowserRuntime',
+            traceId: null,
+            requestId: null,
+            sessionId: null,
+            marketplace: null,
+            profileId: null,
+            payload: { type: this.config.headless ? 'headless' : 'headful' }
+          });
+        });
+
+        const browser = this.context.browser();
+        const version = browser ? (browser.version() || 'unknown') : 'unknown';
+
+        this.eventBus.publish({
+          eventId: crypto.randomUUID(),
+          event: 'BROWSER_STARTED',
+          version: 1,
+          occurredAt: new Date().toISOString(),
+          source: 'LocalBrowserRuntime',
+          traceId: null,
+          requestId: null,
+          sessionId: null,
+          marketplace: null,
+          profileId: null,
+          payload: { 
+            type: this.config.headless ? 'headless' : 'headful',
+            version
+          }
         });
 
         this.eventBus.publish({
           eventId: crypto.randomUUID(),
-          event: 'BrowserStarted',
+          event: 'BROWSER_CONTEXT_CREATED',
           version: 1,
           occurredAt: new Date().toISOString(),
           source: 'LocalBrowserRuntime',
+          traceId: null,
+          requestId: null,
+          sessionId: null,
+          marketplace: null,
+          profileId: null,
           payload: { 
-            persistent: true,
-            userDataDir: this.config.userDataDir,
-            headless: this.config.headless
+            type: this.config.headless ? 'headless' : 'headful',
+            contextId: 'persistent-context'
           }
         });
 
@@ -261,11 +367,30 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
 
       this.eventBus.publish({
         eventId: crypto.randomUUID(),
-        event: 'BrowserDisconnected',
+        event: 'BROWSER_CONTEXT_CLOSED',
         version: 1,
         occurredAt: new Date().toISOString(),
         source: 'LocalBrowserRuntime',
-        payload: { reason: 'Clean shutdown call' }
+        traceId: null,
+        requestId: null,
+        sessionId: null,
+        marketplace: null,
+        profileId: null,
+        payload: { contextId: 'persistent-context' }
+      });
+
+      this.eventBus.publish({
+        eventId: crypto.randomUUID(),
+        event: 'BROWSER_STOPPED',
+        version: 1,
+        occurredAt: new Date().toISOString(),
+        source: 'LocalBrowserRuntime',
+        traceId: null,
+        requestId: null,
+        sessionId: null,
+        marketplace: null,
+        profileId: null,
+        payload: { type: this.config.headless ? 'headless' : 'headful' }
       });
 
       this.logger.info('[LocalBrowserRuntime] Navegador persistente encerrado com sucesso.');
@@ -303,32 +428,6 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
     page.on('close', () => {
       this.managedPages.delete(page);
       this.manualPages.delete(page);
-
-      this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        event: 'PageClosed',
-        version: 1,
-        occurredAt: new Date().toISOString(),
-        source: 'LocalBrowserRuntime',
-        payload: { 
-          isManaged,
-          remainingManaged: this.managedPages.size,
-          remainingManual: this.manualPages.size
-        }
-      });
-    });
-
-    this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      event: 'PageOpened',
-      version: 1,
-      occurredAt: new Date().toISOString(),
-      source: 'LocalBrowserRuntime',
-      payload: { 
-        isManaged,
-        totalManaged: this.managedPages.size,
-        totalManual: this.manualPages.size
-      }
     });
 
     return page;
@@ -354,15 +453,6 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
       await this.start();
     }
     this.lastRestartTime = new Date().toISOString();
-
-    this.eventBus.publish({
-      eventId: crypto.randomUUID(),
-      event: 'BrowserRestarted',
-      version: 1,
-      occurredAt: this.lastRestartTime,
-      source: 'LocalBrowserRuntime',
-      payload: { timestamp: this.lastRestartTime }
-    });
   }
 
   public async closeAllPages(): Promise<void> {

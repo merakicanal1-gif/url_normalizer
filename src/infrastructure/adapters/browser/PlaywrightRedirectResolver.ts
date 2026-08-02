@@ -42,22 +42,26 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
     let redirectCount = 0;
 
     const onRequest = (request: any) => {
-      const redirectedFrom = request.redirectedFrom();
-      if (redirectedFrom) {
-        redirectCount++;
-        const response = redirectedFrom.response();
-        let reason: RedirectReason = 'UNKNOWN';
-        if (response) {
-          const status = response.status();
-          if (status === 301) reason = 'HTTP_301';
-          else if (status === 302) reason = 'HTTP_302';
+      try {
+        const redirectedFrom = request.redirectedFrom();
+        if (redirectedFrom) {
+          redirectCount++;
+          const response = redirectedFrom.response();
+          let reason: RedirectReason = 'UNKNOWN';
+          if (response && typeof response.status === 'function') {
+            const status = response.status();
+            if (status === 301) reason = 'HTTP_301';
+            else if (status === 302) reason = 'HTTP_302';
+          }
+          this.telemetry.redirect({
+            resolver: 'PlaywrightRedirectResolver',
+            fromUrl: typeof redirectedFrom.url === 'function' ? redirectedFrom.url() : redirectedFrom.url,
+            toUrl: typeof request.url === 'function' ? request.url() : request.url,
+            reason
+          });
         }
-        this.telemetry.redirect({
-          resolver: 'PlaywrightRedirectResolver',
-          fromUrl: redirectedFrom.url(),
-          toUrl: request.url(),
-          reason
-        });
+      } catch (err: any) {
+        this.logger.error(`[PlaywrightRedirectResolver] Erro no listener onRequest: ${err.message}`);
       }
     };
 

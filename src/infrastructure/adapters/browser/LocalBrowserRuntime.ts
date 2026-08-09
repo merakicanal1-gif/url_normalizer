@@ -266,34 +266,24 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
     try {
       await this.cleanInternalState();
 
-      try {
-        this.browser = await chromium.connectOverCDP(this.config.cdpEndpoint);
-      } catch (cdpErr: any) {
-        if (this.config.autoStartBrowser) {
-          this.logger.info('[LocalBrowserRuntime] Chrome não detectado na porta 9222. Iniciando automaticamente...');
-          try {
-            const { spawn } = await import('child_process');
-            const env = { ...process.env, DISPLAY: process.env.DISPLAY || ':0', WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || 'wayland-0' };
-            const chromeProcess = spawn(this.config.executablePath || '/usr/bin/google-chrome', [
-              '--profile-directory=Default',
-              '--password-store=basic',
-              '--remote-debugging-port=9222',
-              '--no-first-run'
-            ], {
-              detached: true,
-              stdio: 'ignore',
-              env
-            });
-            chromeProcess.unref();
-            await new Promise(r => setTimeout(r, 2500));
-            this.browser = await chromium.connectOverCDP(this.config.cdpEndpoint);
-          } catch (spawnErr: any) {
-            this.logger.error('[LocalBrowserRuntime] Falha ao auto-iniciar Chrome', spawnErr);
+      let connected = false;
+      const maxRetries = 15;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          this.browser = await chromium.connectOverCDP(this.config.cdpEndpoint);
+          connected = true;
+          break;
+        } catch (err: any) {
+          if (attempt === maxRetries) {
+            this.logger.error('[LocalBrowserRuntime] Falha ao conectar via CDP após todas as tentativas', err);
             throw new BrowserNotRunningError();
           }
-        } else {
-          throw new BrowserNotRunningError();
+          this.logger.info(`[LocalBrowserRuntime] Aguardando o Google Chrome na porta 9222 (tentativa ${attempt}/${maxRetries})...`);
+          await new Promise(r => setTimeout(r, 2000));
         }
+      }
+      if (!this.browser) {
+        throw new BrowserNotRunningError();
       }
       const contexts = this.browser.contexts();
       if (contexts.length === 0) {

@@ -64,8 +64,6 @@ export async function normalizeRoutes(
           url_imagem: result.url_imagem,
           url_produto: result.url_produto,
           link_afiliado: result.link_afiliado,
-          preco_anterior: result.preco_anterior,
-          preco_atual: result.preco_atual,
           mensagem: result.mensagem || null
         }
       });
@@ -95,8 +93,6 @@ export async function normalizeRoutes(
             url_imagem: null,
             url_produto: url,
             link_afiliado: null,
-            preco_anterior: null,
-            preco_atual: null,
             mensagem: error.message || 'Página não corresponde a um produto individual (lista, perfil social, loja ou página inicial).'
           }
         });

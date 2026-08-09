@@ -8,8 +8,8 @@ export interface NormalizedProduct {
   url_imagem: string | null;
   url_produto: string;
   link_afiliado: string | null;
-  preco_anterior: number | null;
-  preco_atual: number | null;
+  preco_anterior?: number | null;
+  preco_atual?: number | null;
   mensagem?: string;
 }
 
@@ -18,8 +18,8 @@ export interface ExtractedProductData {
   nome_produto: string | null;
   url_imagem: string | null;
   url_produto: string;
-  preco_anterior: number | null;
-  preco_atual: number | null;
+  preco_anterior?: number | null;
+  preco_atual?: number | null;
 }
 
 

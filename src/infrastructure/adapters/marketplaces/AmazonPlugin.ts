@@ -286,20 +286,21 @@ export class AmazonPlugin implements IMarketplacePlugin {
           }
         }
       }
-
-      if (generatedLink && generatedLink.trim().startsWith('http')) {
-        link_afiliado = generatedLink.trim();
-        this.logger.info(`[AmazonPlugin] Link de associado encurtado obtido via SiteStripe: "${link_afiliado}"`);
-      } else {
-        link_afiliado = fallbackAffiliateLink;
-        this.logger.info(`[AmazonPlugin] Link de afiliado oficial gerado diretamente por tag: "${link_afiliado}"`);
-      }
     } catch (err: any) {
-      link_afiliado = fallbackAffiliateLink;
-      this.logger.info(`[AmazonPlugin] Fallback para link com tag devido a: ${err.message}`);
+      this.logger.info(`[AmazonPlugin] Erro durante interação com SiteStripe: ${err.message}`);
     }
 
-    console.log(`[AmazonPlugin] [extract/normalize] Extração concluída. ASIN encontrado="${productId}", Imagem encontrada="${extractedData.image}"`);
+    let mensagem: string | null = null;
+    if (generatedLink && (generatedLink.includes('link.amazon') || generatedLink.includes('amzn.to'))) {
+      link_afiliado = generatedLink.trim();
+      this.logger.info(`[AmazonPlugin] Link de associado encurtado oficial obtido via SiteStripe: "${link_afiliado}"`);
+    } else {
+      link_afiliado = null;
+      mensagem = "Não foi possível gerar o link encurtado oficial da Amazon via SiteStripe (verifique o login no Programa de Associados).";
+      this.logger.info(`[AmazonPlugin] ${mensagem}`);
+    }
+
+    console.log(`[AmazonPlugin] [extract/normalize] Extração concluída. ASIN="${productId}", Link Afiliado Oficial="${link_afiliado}"`);
     return {
       success: true,
       marketplace: this.getMarketplaceName(),
@@ -308,6 +309,7 @@ export class AmazonPlugin implements IMarketplacePlugin {
       url_imagem: extractedData.image || null,
       url_produto: canonicalUrl,
       link_afiliado,
+      mensagem,
       preco_anterior,
       preco_atual
     };

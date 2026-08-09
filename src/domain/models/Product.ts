@@ -7,10 +7,10 @@ export interface NormalizedProduct {
   nome_produto: string | null;
   url_imagem: string | null;
   url_produto: string;
-  link_afiliado: string | null;
+  link_afiliado?: string | null;
   preco_anterior?: number | null;
   preco_atual?: number | null;
-  mensagem?: string;
+  mensagem?: string | null;
 }
 
 export interface ExtractedProductData {

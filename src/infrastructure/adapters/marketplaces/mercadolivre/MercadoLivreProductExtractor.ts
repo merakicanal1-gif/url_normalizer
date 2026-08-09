@@ -192,37 +192,51 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
           }
         }
 
-        if (!link_afiliado || link_afiliado.includes('/afiliados/')) {
-          link_afiliado = url.includes('meli.la') ? url : canonicalUrl;
-          this.logger.info(`[MercadoLivreProductExtractor] Modal não retornou meli.la a tempo. Usando fallback: "${link_afiliado}"`);
+        if (!link_afiliado || !link_afiliado.includes('meli.la')) {
+          link_afiliado = url.includes('meli.la') ? url : null;
         }
       }
 
-      // Etapa 7 — Validação estrita do link do Mercado Livre (deve ser meli.la ou produto limpo, nunca dashboard)
-      if (link_afiliado && link_afiliado.trim().startsWith('http')) {
-        const isDashboard = link_afiliado.includes('/afiliados/');
-        if (isDashboard) {
-          link_afiliado = url.includes('meli.la') ? url : canonicalUrl;
-        }
+      let mensagem: string | null = null;
+      if (link_afiliado && link_afiliado.includes('meli.la')) {
+        link_afiliado = link_afiliado.trim();
+        this.logger.info(`[MercadoLivreProductExtractor] Link de afiliado oficial meli.la confirmado: "${link_afiliado}"`);
       } else {
-        link_afiliado = url.includes('meli.la') ? url : canonicalUrl;
+        link_afiliado = null;
+        mensagem = "Não foi possível gerar o link encurtado oficial do Mercado Livre (meli.la) via barra de afiliados (verifique o login no Programa de Afiliados).";
+        this.logger.info(`[MercadoLivreProductExtractor] ${mensagem}`);
       }
+
+      return {
+        success: true,
+        marketplace: marketplaceName,
+        id_produto: productId,
+        nome_produto: extractedData.title || '',
+        url_imagem: extractedData.image || null,
+        url_produto: canonicalUrl,
+        link_afiliado,
+        mensagem,
+        preco_anterior,
+        preco_atual
+      };
 
     } catch (err: any) {
-      link_afiliado = url.includes('meli.la') ? url : canonicalUrl;
-      this.logger.info(`[MercadoLivreProductExtractor] Fallback aplicado devido a: ${err.message}. Link: "${link_afiliado}"`);
+      const isOriginalMeli = url.includes('meli.la');
+      const link_afiliado = isOriginalMeli ? url : null;
+      const mensagem = link_afiliado ? null : "Não foi possível gerar o link encurtado oficial do Mercado Livre (meli.la) via barra de afiliados (verifique o login no Programa de Afiliados).";
+      
+      return {
+        success: true,
+        marketplace: marketplaceName,
+        id_produto: productId,
+        nome_produto: extractedData.title || '',
+        url_imagem: extractedData.image || null,
+        url_produto: canonicalUrl,
+        link_afiliado,
+        mensagem,
+        preco_anterior,
+        preco_atual
+      };
     }
-
-    return {
-      success: true,
-      marketplace: marketplaceName,
-      id_produto: productId,
-      nome_produto: extractedData.title || '',
-      url_imagem: extractedData.image || null,
-      url_produto: canonicalUrl,
-      link_afiliado,
-      preco_anterior,
-      preco_atual
-    };
   }
 }

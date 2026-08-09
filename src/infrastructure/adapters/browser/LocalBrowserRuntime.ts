@@ -426,20 +426,9 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
     }
 
     const key = marketplace ? marketplace.toLowerCase() : 'default';
-    page.on('close', async () => {
+    page.on('close', () => {
       this.managedPages.delete(page);
       this.manualPages.delete(page);
-
-      const isCdp = this.config.browserMode === 'cdp';
-      if (isCdp) {
-        try {
-          const statePath = path.join(process.cwd(), 'data', `session_${key}.json`);
-          this.logger.info(`[LocalBrowserRuntime] Salvando automaticamente o storageState para ${key} em ${statePath}`);
-          await context.storageState({ path: statePath });
-        } catch (e: any) {
-          this.logger.error(`[LocalBrowserRuntime] Erro ao salvar auto-session para ${key}: ${e.message}`);
-        }
-      }
     });
 
     return page;
@@ -447,8 +436,8 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
 
   public async closePage(page: Page): Promise<void> {
     if (page && !page.isClosed()) {
-      await page.close().catch((err) => {
-        this.logger.error('[LocalBrowserRuntime] Falha ao fechar aba do navegador', err);
+      await page.close({ runBeforeUnload: false }).catch((err) => {
+        this.logger.warn?.(`[LocalBrowserRuntime] Erro ao fechar página: ${err.message}`);
       });
     }
   }

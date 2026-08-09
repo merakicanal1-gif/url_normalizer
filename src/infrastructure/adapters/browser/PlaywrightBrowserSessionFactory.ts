@@ -31,17 +31,6 @@ export class PlaywrightBrowserSessionFactory implements IBrowserSessionFactory {
         if (this.logger) {
           this.logger.info(`[PlaywrightBrowserSessionFactory] Descartando página gerenciada para o marketplace: ${marketplace}`);
         }
-        // No modo CDP, salva o estado da sessão no dispose caso de fechamento do browser
-        const isCdp = (this.browserRuntime as any).getConnectedViaCDP?.();
-        if (isCdp) {
-          try {
-            const key = marketplace.toLowerCase();
-            const statePath = `./data/session_${key}.json`;
-            await page.context().storageState({ path: statePath });
-          } catch (err: any) {
-            // Ignorar se a página/contexto já estiver fechada
-          }
-        }
         await this.browserRuntime.closePage(page);
       }
     };

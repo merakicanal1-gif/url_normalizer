@@ -180,28 +180,28 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
           }
         }
 
-        // Tentativa 3: Extrair via regex do DOM do popover
-        if (!link_afiliado) {
+        // Tentativa 3: Extrair via regex do DOM do popover procurando estritamente meli.la
+        if (!link_afiliado || link_afiliado.includes('/afiliados/')) {
           const match = await modalContainer.evaluate((el: any) => {
-            const m = el.innerHTML.match(/https?:\/\/(meli\.la\/[a-zA-Z0-9_-]+|www\.mercadolivre\.com\.br\/[^\s"']+)/);
+            const m = el.innerHTML.match(/https?:\/\/meli\.la\/[a-zA-Z0-9_-]+/i);
             return m ? m[0] : null;
           });
           if (match && match.trim().startsWith('http')) {
             link_afiliado = match.trim();
-            this.logger.info(`[MercadoLivreProductExtractor] Link de afiliado extraído via regex do modal: "${link_afiliado}"`);
+            this.logger.info(`[MercadoLivreProductExtractor] Link meli.la oficial extraído via regex do modal: "${link_afiliado}"`);
           }
         }
 
-        if (!link_afiliado) {
+        if (!link_afiliado || link_afiliado.includes('/afiliados/')) {
           link_afiliado = url.includes('meli.la') ? url : canonicalUrl;
-          this.logger.info(`[MercadoLivreProductExtractor] Modal não retornou link a tempo. Usando fallback: "${link_afiliado}"`);
+          this.logger.info(`[MercadoLivreProductExtractor] Modal não retornou meli.la a tempo. Usando fallback: "${link_afiliado}"`);
         }
       }
 
-      // Etapa 7 — Validação do link do Mercado Livre
+      // Etapa 7 — Validação estrita do link do Mercado Livre (deve ser meli.la ou produto limpo, nunca dashboard)
       if (link_afiliado && link_afiliado.trim().startsWith('http')) {
-        const isMeliLink = link_afiliado.includes('meli.la') || link_afiliado.includes('mercadolivre.com') || link_afiliado.includes('mercadolibre.com');
-        if (!isMeliLink) {
+        const isDashboard = link_afiliado.includes('/afiliados/');
+        if (isDashboard) {
           link_afiliado = url.includes('meli.la') ? url : canonicalUrl;
         }
       } else {

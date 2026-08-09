@@ -88,4 +88,36 @@ test('LocalBrowserRuntime and BrowserHealthService integration', async (t) => {
     delete process.env.BROWSER_MODE;
     delete process.env.CDP_ENDPOINT;
   });
+
+  await t.test('auto-recuperacao - deve reiniciar contextos automaticamente se fechados inesperadamente', async () => {
+    const tmpDirRecovery = path.join(os.tmpdir(), `url-normalizer-test-recovery-${crypto.randomUUID()}`);
+    process.env.SESSION_STORAGE_DIR = tmpDirRecovery;
+
+    const configRec = new BrowserConfig();
+    const runtimeRec = new LocalBrowserRuntime(configRec, mockEventBus, mockLogger);
+
+    await runtimeRec.start();
+    assert.strictEqual(runtimeRec.getIsRunning(), true);
+
+    const amazonCtxBefore = await runtimeRec.getContext('amazon');
+    assert.ok(amazonCtxBefore);
+
+    // Simular fechamento do contexto
+    await amazonCtxBefore.close();
+    
+    // getIsContextAliveFor('amazon') deve retornar false
+    assert.strictEqual(runtimeRec.getIsContextAliveFor('amazon'), false);
+
+    // Ao tentar abrir uma nova página, ensureStarted() deve detectar a inatividade e recuperar o runtime
+    const newPage = await runtimeRec.newPage(true, 'amazon');
+    assert.ok(newPage);
+    assert.strictEqual(runtimeRec.getIsContextAliveFor('amazon'), true);
+
+    await runtimeRec.closePage(newPage);
+    await runtimeRec.shutdown();
+
+    try {
+      fs.rmSync(tmpDirRecovery, { recursive: true, force: true });
+    } catch (e) {}
+  });
 });

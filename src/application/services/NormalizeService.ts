@@ -9,9 +9,16 @@ import { ChallengeDetectedError } from '../../domain/errors/ChallengeDetectedErr
 import { SessionStatus } from '../../domain/models/AuthenticationSessionStatus.js';
 import { INormalizeTelemetry } from '../../domain/ports/INormalizeTelemetry.js';
 import { NoOpNormalizeTelemetry } from '../../infrastructure/telemetry/NoOpNormalizeTelemetry.js';
+import { AffiliateLinkGenerator } from './AffiliateLinkGenerator.js';
+import { UnsupportedMarketplaceError } from '../../domain/errors/UnsupportedMarketplaceError.js';
+import { ProductNotFoundError } from '../../domain/errors/ProductNotFoundError.js';
+import { ProductUnavailableError } from '../../domain/errors/ProductUnavailableError.js';
+import { AffiliateLinkError } from '../../domain/errors/AffiliateLinkError.js';
+import { INavigatorPage } from '../../domain/ports/INavigator.js';
 
 export class NormalizeService {
   private telemetry: INormalizeTelemetry;
+  private affiliateGenerator = new AffiliateLinkGenerator();
 
   constructor(
     private urlResolver: IUrlResolver,
@@ -114,24 +121,29 @@ export class NormalizeService {
       try {
         // 4. Resolver redirecionamentos iniciais reutilizando a mesma sessão/página
         const resolved = await this.urlResolver.resolve(originalUrl, this.defaultTimeoutMs, profileId, session.page);
-        const finalUrl = new URL(resolved.finalUrl);
         console.log(`[NormalizeService] resolvedUrl="${resolved.finalUrl}" resolver="${resolved.metadata.resolver}"`);
 
-        // Identificar o marketplace final a partir da URL resolvida
-        let finalMarketplace = 'generic';
-        if (MarketplaceHostRegistry.isAmazon(finalUrl.hostname)) {
-          finalMarketplace = 'amazon';
-        } else if (MarketplaceHostRegistry.isMercadoLivre(finalUrl.hostname)) {
-          finalMarketplace = 'mercadolivre';
-        } else if (MarketplaceHostRegistry.isShopee(finalUrl.hostname)) {
-          finalMarketplace = 'shopee';
+        // Garantir que a página está na URL final resolvida
+        const currentUrlStr = activeSession.page.getFinalUrl();
+        if (currentUrlStr !== resolved.finalUrl) {
+          await activeSession.page.goto(resolved.finalUrl, this.defaultTimeoutMs);
         }
 
-        // Se o resolvedor redirecionou para um marketplace diferente, recria a página
-        if (finalMarketplace !== initialMarketplace) {
-          console.log(`[DIAGNOSTIC] [NormalizeService] Mudança de marketplace detectada: ${initialMarketplace} -> ${finalMarketplace}. Recriando sessão...`);
-          await session.dispose().catch(() => {});
-          activeSession = await this.sessionFactory.createSession(finalMarketplace, profileId);
+        // Identificar o marketplace real analisando a página carregada
+        const identifiedMarketplace = await this.identifyMarketplace(activeSession.page);
+        console.log(`[NormalizeService] Marketplace identificado após carregamento da página: "${identifiedMarketplace}"`);
+
+        // Validar se o marketplace de fato é suportado (apenas Amazon e Mercado Livre são suportados)
+        const supportedMarketplaces = ['amazon', 'mercadolivre'];
+        if (!supportedMarketplaces.includes(identifiedMarketplace)) {
+          throw new UnsupportedMarketplaceError(`Marketplace não suportado: ${new URL(resolved.finalUrl).hostname}`);
+        }
+
+        // Se o marketplace identificado for diferente do estimado inicial, recriar a sessão com o perfil isolado correspondente
+        if (identifiedMarketplace !== initialMarketplace) {
+          console.log(`[DIAGNOSTIC] [NormalizeService] Mudança de marketplace detectada: ${initialMarketplace} -> ${identifiedMarketplace}. Recriando sessão...`);
+          await activeSession.dispose().catch(() => {});
+          activeSession = await this.sessionFactory.createSession(identifiedMarketplace, profileId);
           this.telemetry.browserCreated({ runtime: 'worker', browserMode: 'headless' });
           
           const newRawPage = (activeSession.page as any).getRawPage?.();
@@ -140,43 +152,44 @@ export class NormalizeService {
           if (profileId && newCookies.length > 0) {
             this.telemetry.storageStateLoaded({ profileId, cookiesCount: newCookies.length });
           }
-        }
 
-        // 5. Garantir que a página está na URL final resolvida
-        const currentUrlStr = activeSession.page.getFinalUrl();
-        if (currentUrlStr !== resolved.finalUrl) {
+          // Navegar para a URL resolvida na nova sessão
           await activeSession.page.goto(resolved.finalUrl, this.defaultTimeoutMs);
         }
 
-        // Obter a URL real final da navegação na página (após redirecionamentos via JS/Client)
+        // Obter a URL real final após qualquer redirecionamento na nova sessão
         const actualFinalUrlStr = activeSession.page.getFinalUrl();
         const actualFinalUrl = new URL(actualFinalUrlStr);
 
-        // Validar se o host final de fato pertence a um marketplace suportado
-        if (!MarketplaceHostRegistry.isKnownMarketplace(actualFinalUrl.hostname)) {
-          throw new Error(`Marketplace não suportado: ${actualFinalUrl.hostname}`);
-        }
-
-        // 6. Identificar o plugin correspondente pela URL final real
+        // Identificar o plugin correspondente pela URL final real
         const plugin = this.registry.resolve(actualFinalUrl);
         const marketplace = plugin.getMarketplaceName();
         this.telemetry.resolvedMarketplace(marketplace);
 
-        // 7. Executar extração pelo plugin correspondente
+        // Executar extração pelo plugin correspondente
         const product = await plugin.normalize(activeSession.page, actualFinalUrl);
+
+        // Se o plugin não retornou um link de afiliado, gerar pelo gerador secundário
+        if (!product.link_afiliado) {
+          product.link_afiliado = this.affiliateGenerator.generate(
+            product.marketplace,
+            product.url_produto,
+            product.id_produto
+          );
+        }
 
         const durationMs = Math.round(performance.now() - startTime);
 
         // Registrar resultado da telemetria
         this.telemetry.normalizeResult({
           marketplace,
-          productId: product.id_produto,
-          canonicalUrl: product.url_final,
-          title: product.titulo,
-          image: product.imagem
+          productId: product.id_produto || 'UNKNOWN',
+          canonicalUrl: product.url_produto,
+          title: product.nome_produto || '',
+          image: product.url_imagem || ''
         });
 
-        this.telemetry.finished(product.url_final, durationMs, 'UNKNOWN');
+        this.telemetry.finished(product.url_produto, durationMs, 'UNKNOWN');
 
         // Publicar evento NORMALIZE_COMPLETED
         this.eventBus.publish({
@@ -230,7 +243,7 @@ export class NormalizeService {
           profileId: profileId || null,
           payload: {
             marketplace,
-            id: product.id_produto
+            id: product.id_produto || 'UNKNOWN'
           }
         });
 
@@ -283,5 +296,38 @@ export class NormalizeService {
         await activeSession.dispose().catch(() => {});
       }
     });
+  }
+
+  private async identifyMarketplace(page: INavigatorPage): Promise<string> {
+    const urlStr = page.getFinalUrl();
+    const url = new URL(urlStr);
+    const hostname = url.hostname.toLowerCase();
+
+    // 1. Checar por hostname/domínio
+    if (hostname.includes('amazon.')) {
+      return 'amazon';
+    }
+    if (hostname.includes('mercadolivre.') || hostname.includes('mercadolibre.') || hostname.includes('meli.la')) {
+      return 'mercadolivre';
+    }
+    if (hostname.includes('shopee.')) {
+      return 'shopee';
+    }
+
+    // 2. Checar por assinaturas no DOM/HTML como fallback
+    try {
+      const raw = (page as any).getRawPage?.();
+      if (raw) {
+        const hasAmazonLogo = await raw.locator('a[href*="/ref=nav_logo"], #nav-logo-sprites, #amzn-ss-wrap').count().catch(() => 0) > 0;
+        if (hasAmazonLogo) return 'amazon';
+
+        const hasMeliLogo = await raw.locator('.nav-logo, a[href*="mercadolivre.com.br"], #shortcut-menu').count().catch(() => 0) > 0;
+        if (hasMeliLogo) return 'mercadolivre';
+      }
+    } catch (e) {
+      // ignorar erros
+    }
+
+    return 'generic';
   }
 }

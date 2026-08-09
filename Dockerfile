@@ -26,7 +26,7 @@ WORKDIR /app
 
 # Variáveis de ambiente de produção padrões
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3007
 ENV HOST=0.0.0.0
 ENV TIMEOUT_MS=30000
 
@@ -42,7 +42,7 @@ RUN mkdir -p /app/data && chown -R pwuser:pwuser /app
 USER pwuser
 
 # Expõe a porta de escuta configurada
-EXPOSE 3000
+EXPOSE 3007
 
 # Comando para iniciar o servidor Node.js
 CMD ["node", "dist/infrastructure/transport/http/server.js"]

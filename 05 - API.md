@@ -31,7 +31,7 @@ Toda resposta deve seguir o mesmo padrão.
 Durante desenvolvimento
 
 ```
-http://localhost:3000
+http://localhost:3007
 ```
 
 Produção

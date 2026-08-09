@@ -4,6 +4,10 @@ import { normalizeSchema } from '../schemas/normalizeSchema.js';
 import { ChallengeDetectedError } from '../../../../domain/errors/ChallengeDetectedError.js';
 import { MarketplaceUnavailableError } from '../../../../domain/errors/MarketplaceUnavailableError.js';
 import { BrowserNotRunningError } from '../../../../domain/errors/BrowserNotRunningError.js';
+import { UnsupportedMarketplaceError } from '../../../../domain/errors/UnsupportedMarketplaceError.js';
+import { ProductNotFoundError } from '../../../../domain/errors/ProductNotFoundError.js';
+import { ProductUnavailableError } from '../../../../domain/errors/ProductUnavailableError.js';
+import { AffiliateLinkError } from '../../../../domain/errors/AffiliateLinkError.js';
 
 export async function normalizeRoutes(
   fastify: FastifyInstance,
@@ -50,18 +54,62 @@ export async function normalizeRoutes(
       // 3. Retornar a resposta estruturada de sucesso
       return reply.status(200).send({
         success: true,
-        marketplace: result.marketplace,
-        url_final: result.url_final,
-        id_produto: result.id_produto,
-        titulo: result.titulo,
-        imagem: result.imagem,
-        execution: {
-          duration_ms: durationMs
+        is_produto: result.is_produto !== false && !!result.id_produto,
+        tipo_pagina: result.tipo_pagina || (result.id_produto ? 'produto' : 'nao_produto'),
+        data: {
+          marketplace: result.marketplace,
+          tipo_pagina: result.tipo_pagina || (result.id_produto ? 'produto' : 'nao_produto'),
+          id_produto: result.id_produto,
+          nome_produto: result.nome_produto,
+          url_imagem: result.url_imagem,
+          url_produto: result.url_produto,
+          link_afiliado: result.link_afiliado,
+          preco_anterior: result.preco_anterior,
+          preco_atual: result.preco_atual,
+          mensagem: result.mensagem || null
         }
       });
     } catch (error: any) {
       const end = performance.now();
       const durationMs = Math.round(end - start);
+
+      if (error instanceof UnsupportedMarketplaceError) {
+        return reply.status(400).send({
+          success: false,
+          error: {
+            code: 'UNSUPPORTED_MARKETPLACE',
+            message: error.message
+          }
+        });
+      }
+      if (error instanceof ProductNotFoundError || error instanceof ProductUnavailableError) {
+        return reply.status(200).send({
+          success: true,
+          is_produto: false,
+          tipo_pagina: 'nao_produto',
+          data: {
+            marketplace: 'unknown',
+            tipo_pagina: 'nao_produto',
+            id_produto: null,
+            nome_produto: null,
+            url_imagem: null,
+            url_produto: url,
+            link_afiliado: null,
+            preco_anterior: null,
+            preco_atual: null,
+            mensagem: error.message || 'Página não corresponde a um produto individual (lista, perfil social, loja ou página inicial).'
+          }
+        });
+      }
+      if (error instanceof AffiliateLinkError) {
+        return reply.status(422).send({
+          success: false,
+          error: {
+            code: 'AFFILIATE_LINK_ERROR',
+            message: error.message
+          }
+        });
+      }
 
       if (error instanceof BrowserNotRunningError || error.code === 'BROWSER_NOT_RUNNING') {
         return reply.status(503).send({

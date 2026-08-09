@@ -43,10 +43,13 @@ export class GenericPlugin implements IMarketplacePlugin {
     return {
       success: true,
       marketplace: this.getMarketplaceName(),
-      url_final: cleanUrl.toString(),
       id_produto: '', // Fallback não possui padrão de ID estruturado
-      titulo: extractedData.title,
-      imagem: extractedData.image
+      nome_produto: extractedData.title || '',
+      url_imagem: extractedData.image || null,
+      url_produto: cleanUrl.toString(),
+      link_afiliado: null,
+      preco_anterior: null,
+      preco_atual: null
     };
   }
 }

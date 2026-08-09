@@ -4,7 +4,7 @@ info:
   description: API REST para normalização de URLs de marketplaces (Amazon, Mercado Livre, Shopee) e gerenciamento de sessões interativas de login.
   version: 1.0.0-beta
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:3007
     description: Servidor Local de Desenvolvimento
 paths:
   /normalize:
@@ -40,16 +40,27 @@ paths:
                 properties:
                   success:
                     type: boolean
-                  marketplace:
-                    type: string
-                  url_final:
-                    type: string
-                  id_produto:
-                    type: string
-                  titulo:
-                    type: string
-                  imagem:
-                    type: string
+                  data:
+                    type: object
+                    properties:
+                      marketplace:
+                        type: string
+                      id_produto:
+                        type: string
+                      nome_produto:
+                        type: string
+                      url_imagem:
+                        type: string
+                      url_produto:
+                        type: string
+                      link_afiliado:
+                        type: string
+                      preco_anterior:
+                        type: number
+                        nullable: true
+                      preco_atual:
+                        type: number
+                        nullable: true
         '403':
           description: Bloqueio WAF/CAPTCHA detectado e nenhuma sessão de login ativa disponível
         '422':
@@ -190,3 +201,47 @@ paths:
       responses:
         '200':
           description: Dados coletados com sucesso
+
+  /status:
+    get:
+      summary: Status Geral da API e Sessões
+      description: Retorna informações completas de saúde do runtime Playwright, Tailscale e perfis locais.
+      responses:
+        '200':
+          description: Status retornado com sucesso
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  status:
+                    type: string
+                  version:
+                    type: string
+                  environment:
+                    type: string
+                  runtime:
+                    type: string
+                  browser:
+                    type: string
+                  headless:
+                    type: boolean
+                  host:
+                    type: string
+                  port:
+                    type: number
+                  tailscale_ip:
+                    type: string
+                  tailscale_url:
+                    type: string
+                  uptime_seconds:
+                    type: number
+                  sessions:
+                    type: object
+                    properties:
+                      amazon:
+                        type: string
+                      mercadolivre:
+                        type: string

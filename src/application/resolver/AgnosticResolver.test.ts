@@ -26,10 +26,13 @@ test('Sprint 2.0.4 — Agnostic resolver and NormalizeService integrations', asy
   const mockProduct = {
     success: true,
     marketplace: 'amazon',
-    url_final: 'https://www.amazon.com.br/dp/B0CX123456',
     id_produto: 'B0CX123456',
-    titulo: 'Real Product Title',
-    imagem: 'https://images.amazon.com/test.jpg'
+    nome_produto: 'Real Product Title',
+    url_imagem: 'https://images.amazon.com/test.jpg',
+    url_produto: 'https://www.amazon.com.br/dp/B0CX123456',
+    link_afiliado: null,
+    preco_anterior: null,
+    preco_atual: null
   };
 
   const mockAmazonPlugin: IMarketplacePlugin = {

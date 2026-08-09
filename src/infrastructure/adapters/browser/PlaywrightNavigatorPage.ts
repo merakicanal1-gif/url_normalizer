@@ -7,10 +7,17 @@ export class PlaywrightNavigatorPage implements INavigatorPage {
   ) {}
 
   public async goto(url: string, timeoutMs?: number): Promise<string> {
-    await this.page.goto(url, {
-      waitUntil: 'domcontentloaded',
-      timeout: timeoutMs
-    });
+    try {
+      await this.page.goto(url, {
+        waitUntil: 'domcontentloaded',
+        timeout: timeoutMs || 15000
+      });
+    } catch (e: any) {
+      console.log(`[PlaywrightNavigatorPage] Aviso no goto para ${url}: ${e.message}`);
+      if (this.page.url() === 'about:blank') {
+        throw e;
+      }
+    }
     return this.page.url();
   }
 

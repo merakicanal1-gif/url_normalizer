@@ -171,6 +171,15 @@ export async function browserRoutes(
 
   // Conecta ou reconecta via CDP (apenas modo cdp)
   fastify.post('/browser/connect', async (request, reply) => {
+    if ((browserRuntime as any).getBrowserConfig().browserMode === 'persistent') {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'NOT_SUPPORTED',
+          message: 'Esta operação não está disponível no modo Persistent.'
+        }
+      });
+    }
     try {
       fastify.log.info('[browserRoutes] Conectando via CDP...');
       await browserRuntime.connect();
@@ -198,6 +207,15 @@ export async function browserRoutes(
 
   // Desconecta da sessão CDP sem fechar navegador ou abas (apenas modo cdp)
   fastify.post('/browser/disconnect', async (request, reply) => {
+    if ((browserRuntime as any).getBrowserConfig().browserMode === 'persistent') {
+      return reply.status(400).send({
+        success: false,
+        error: {
+          code: 'NOT_SUPPORTED',
+          message: 'Esta operação não está disponível no modo Persistent.'
+        }
+      });
+    }
     try {
       fastify.log.info('[browserRoutes] Desconectando da sessão CDP...');
       await browserRuntime.disconnect();

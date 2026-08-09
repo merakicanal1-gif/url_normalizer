@@ -21,8 +21,8 @@ export class PlaywrightBrowserSessionFactory implements IBrowserSessionFactory {
       this.logger.info(`[PlaywrightBrowserSessionFactory] Criando sessão gerenciada para o marketplace: ${marketplace}`);
     }
 
-    // Criar aba marcada como gerenciada (isManaged = true)
-    const page = await this.browserRuntime.newPage(true);
+    // Criar aba marcada como gerenciada (isManaged = true) repassando o marketplace
+    const page = await this.browserRuntime.newPage(true, marketplace);
     const navigatorPage = new PlaywrightNavigatorPage(page);
 
     return {
@@ -30,6 +30,17 @@ export class PlaywrightBrowserSessionFactory implements IBrowserSessionFactory {
       dispose: async () => {
         if (this.logger) {
           this.logger.info(`[PlaywrightBrowserSessionFactory] Descartando página gerenciada para o marketplace: ${marketplace}`);
+        }
+        // No modo CDP, salva o estado da sessão no dispose caso de fechamento do browser
+        const isCdp = (this.browserRuntime as any).getConnectedViaCDP?.();
+        if (isCdp) {
+          try {
+            const key = marketplace.toLowerCase();
+            const statePath = `./data/session_${key}.json`;
+            await page.context().storageState({ path: statePath });
+          } catch (err: any) {
+            // Ignorar se a página/contexto já estiver fechada
+          }
         }
         await this.browserRuntime.closePage(page);
       }

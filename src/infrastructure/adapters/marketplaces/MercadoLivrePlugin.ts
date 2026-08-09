@@ -3,6 +3,8 @@ import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 import { NormalizedProduct } from '../../../domain/models/Product.js';
 import { ChallengeDetectedError } from '../../../domain/errors/ChallengeDetectedError.js';
 import { MarketplaceUnavailableError, MarketplacePageType } from '../../../domain/errors/MarketplaceUnavailableError.js';
+import { ProductNotFoundError } from '../../../domain/errors/ProductNotFoundError.js';
+import { ProductUnavailableError } from '../../../domain/errors/ProductUnavailableError.js';
 import { IPageClassifier } from '../../../domain/ports/IPageClassifier.js';
 import { INavigationObserver } from '../../../domain/ports/INavigationObserver.js';
 import { IProductPageValidator } from '../../../domain/ports/IProductPageValidator.js';
@@ -95,24 +97,19 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
 
         case NavigationState.OPEN_URL: {
           this.logger.info(`[STATE_MACHINE] STATE=OPEN_URL URL="${currentUrl.toString()}" TIME_MS=${Math.round(performance.now() - stateStartTime)}`);
+          if (rawPage.url() === 'about:blank' || currentUrl.hostname.includes('meli.la') || !rawPage.url().includes('mercadolivre.com')) {
+            this.logger.info(`[STATE_MACHINE] Navegando explicitamente para ${currentUrl.toString()}...`);
+            await rawPage.goto(currentUrl.toString(), { waitUntil: 'domcontentloaded', timeout: 10000 }).catch(() => {});
+            currentUrl = new URL(rawPage.url());
+            this.logger.info(`[STATE_MACHINE] URL após navegação: ${currentUrl.toString()}`);
+          }
           state = NavigationState.WAIT_DOM;
           break;
         }
 
         case NavigationState.WAIT_DOM: {
           this.logger.info(`[STATE_MACHINE] STATE=WAIT_DOM URL="${currentUrl.toString()}"`);
-          await rawPage.waitForLoadState('domcontentloaded', { timeout: 5000 }).catch((e) => {
-            this.logger.info(`[STATE_MACHINE] Timeout ou aviso ao esperar domcontentloaded: ${e.message}`);
-          });
-          state = NavigationState.WAIT_NETWORK;
-          break;
-        }
-
-        case NavigationState.WAIT_NETWORK: {
-          this.logger.info(`[STATE_MACHINE] STATE=WAIT_NETWORK URL="${currentUrl.toString()}"`);
-          await rawPage.waitForLoadState('networkidle', { timeout: 3000 }).catch((e) => {
-            this.logger.info(`[STATE_MACHINE] Timeout ou aviso ao esperar networkidle: ${e.message}`);
-          });
+          await rawPage.waitForLoadState('domcontentloaded', { timeout: 3000 }).catch(() => {});
           state = NavigationState.INSPECT_PAGE;
           break;
         }
@@ -134,13 +131,40 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
           if (inspection.pageType === 'WAF_PAGE' || inspection.pageType === 'CAPTCHA_PAGE' || inspection.pageType === 'LOGIN_PAGE') {
             const redirectUrl = this.getRedirectUrlFromParams(rawPage.url());
             if (redirectUrl && redirectUrl !== rawPage.url()) {
-              this.logger.info(`[STATE_MACHINE] Bloqueio ou tela de login detectada (${inspection.pageType}). URL de redirecionamento encontrada: "${redirectUrl}". Navegando diretamente...`);
-              currentUrl = new URL(redirectUrl);
-              await rawPage.goto(redirectUrl, { timeout: 15000 }).catch((e) => {
-                this.logger.error(`[STATE_MACHINE] Erro ao navegar para URL de redirecionamento: ${e.message}`);
-              });
-              state = NavigationState.WAIT_DOM;
-              break;
+              attempts++;
+              if (attempts <= 2) {
+                this.logger.info(`[STATE_MACHINE] Bloqueio ou tela de login detectada (${inspection.pageType}). URL de redirecionamento encontrada: "${redirectUrl}". Tentativa ${attempts}/2...`);
+                await rawPage.goto(redirectUrl, { waitUntil: 'domcontentloaded', timeout: 10000 }).catch((e) => {
+                  this.logger.error(`[STATE_MACHINE] Erro ao navegar para URL de redirecionamento: ${e.message}`);
+                });
+                currentUrl = new URL(rawPage.url());
+                state = NavigationState.WAIT_DOM;
+                break;
+              }
+
+              // Extração resiliente direta dos parâmetros de redirecionamento
+              const mlbMatch = /(MLB[U]?-?\d+)/i.exec(redirectUrl);
+              if (mlbMatch) {
+                const productId = mlbMatch[1].replace('-', '').toUpperCase();
+                const slugMatch = /MLB-?\d+-([a-zA-Z0-9_-]+)/i.exec(redirectUrl);
+                const titleFromSlug = slugMatch ? slugMatch[1].replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase()) : 'Produto Mercado Livre';
+                const cleanProductUrl = redirectUrl.split('?')[0].split('#')[0];
+
+                this.logger.info(`[STATE_MACHINE] Extração resiliente via redirectUrl: ID=${productId}, Título="${titleFromSlug}"`);
+                return {
+                  success: true,
+                  is_produto: true,
+                  tipo_pagina: 'produto',
+                  marketplace: this.getMarketplaceName(),
+                  id_produto: productId,
+                  nome_produto: titleFromSlug,
+                  url_imagem: null,
+                  url_produto: cleanProductUrl,
+                  link_afiliado: finalUrl.toString().includes('meli.la') ? finalUrl.toString() : cleanProductUrl,
+                  preco_anterior: null,
+                  preco_atual: null
+                };
+              }
             }
           }
 
@@ -154,17 +178,7 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
             throw new ChallengeDetectedError(`Página de login exigida: ${inspection.evidences.join(', ')}`, 'LOGIN');
           }
           if (inspection.pageType === 'ERROR_PAGE') {
-            const finalScreenshot = await this.takeScreenshot(rawPage, 'error', artifactsDir);
-            throw new MarketplaceUnavailableError(
-              'O marketplace retornou uma página de erro.',
-              'ERROR_PAGE',
-              inspection.title || await rawPage.title(),
-              currentUrl.toString(),
-              this.getMarketplaceName(),
-              inspection.evidences.join(', '),
-              finalScreenshot,
-              (await rawPage.content()).substring(0, 500)
-            );
+            throw new ProductUnavailableError();
           }
 
           if (inspection.pageType === 'PRODUCT_PAGE') {
@@ -182,17 +196,21 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
                 this.logger.info(`[STATE_MACHINE] STATE=DECIDE CLASSIFICATION=UNKNOWN com MLB. Forçando validação.`);
                 state = NavigationState.VALIDATE_PRODUCT;
               } else {
-                const finalScreenshot = await this.takeScreenshot(rawPage, 'unknown_failure', artifactsDir);
-                throw new MarketplaceUnavailableError(
-                  'Não foi possível classificar a página após estabilização.',
-                  'ERROR_PAGE',
-                  inspection.title || await rawPage.title(),
-                  currentUrl.toString(),
-                  this.getMarketplaceName(),
-                  inspection.evidences.join(', '),
-                  finalScreenshot,
-                  (await rawPage.content()).substring(0, 500)
-                );
+                this.logger.info(`[STATE_MACHINE] Página não é um produto individual. Retornando objeto estruturado.`);
+                return {
+                  success: true,
+                  is_produto: false,
+                  tipo_pagina: 'nao_produto',
+                  marketplace: this.getMarketplaceName(),
+                  id_produto: null,
+                  nome_produto: await rawPage.title().catch(() => null),
+                  url_imagem: null,
+                  url_produto: rawPage.url(),
+                  link_afiliado: null,
+                  preco_anterior: null,
+                  preco_atual: null,
+                  mensagem: 'URL válida, porém direciona para uma página inicial, lista, busca ou perfil social (não é um produto individual).'
+                };
               }
             }
           }
@@ -200,39 +218,68 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
         }
 
         case NavigationState.CLICK_PRIMARY_CTA: {
-          const buttonLocator = rawPage.locator('a, button, [role="button"]').filter({
-            hasText: /ir (para (o )?produto|al producto)/i
+          const buttonLocator = rawPage.locator('a, button, [role="button"], .andes-button').filter({
+            hasText: /ir (para )?(o )?produto|al producto|ver produto|comprar agora|acessar produto/i
           });
 
-          this.logger.info(`[STATE_MACHINE] STATE=CLICK_PRIMARY_CTA Aguardando CTA principal ficar visível...`);
+          this.logger.info(`[STATE_MACHINE] STATE=CLICK_PRIMARY_CTA Aguardando CTA principal ou link de produto...`);
           
           try {
-            await buttonLocator.first().waitFor({ state: 'visible', timeout: 5000 });
-            await this.takeScreenshot(rawPage, 'before_click', artifactsDir);
-            
-            this.logger.info(`[STATE_MACHINE] STATE=CLICK_PRIMARY_CTA Clicando no CTA.`);
-            pendingClick = buttonLocator.first().click({ timeout: 5000 });
-            state = NavigationState.WAIT_TRANSITION;
+            // Prioridade 1: Clicar no botão CTA na página com emulação de cursor humano
+            if (await buttonLocator.count().catch(() => 0) > 0 && await buttonLocator.first().isVisible().catch(() => false)) {
+              this.logger.info(`[STATE_MACHINE] STATE=CLICK_PRIMARY_CTA Clicando no botão CTA visível.`);
+              const btn = buttonLocator.first();
+              await btn.hover().catch(() => {});
+              await rawPage.waitForTimeout(250);
+              await btn.click({ delay: 120 }).catch(() => {});
+              await rawPage.waitForLoadState('domcontentloaded', { timeout: 8000 }).catch(() => {});
+              await rawPage.waitForTimeout(1500);
+              currentUrl = new URL(rawPage.url());
+              state = NavigationState.INSPECT_PAGE;
+              break;
+            }
+
+            // Prioridade 2: Obter link direto para o produto destacado na landing page
+            const directProductHref = await rawPage.evaluate(() => {
+              const elements = Array.from(document.querySelectorAll('a'));
+              const textRegex = /ir (para )?(o )?produto|al producto|ver produto|acessar produto/i;
+              for (const a of elements) {
+                if (textRegex.test(a.textContent?.trim() || '') && a.href) {
+                  return a.href;
+                }
+              }
+              const mlbA = document.querySelector('a[href*="produto.mercadolivre.com.br/MLB"], a[href*="/p/MLB"], a[href*="/up/MLB"]') as HTMLAnchorElement | null;
+              return mlbA ? mlbA.href : null;
+            });
+
+            if (directProductHref && directProductHref.startsWith('http')) {
+              this.logger.info(`[STATE_MACHINE] STATE=CLICK_PRIMARY_CTA Link direto encontrado: "${directProductHref}". Navegando...`);
+              await rawPage.goto(directProductHref, { timeout: 15000 }).catch(() => {});
+              currentUrl = new URL(rawPage.url());
+              state = NavigationState.WAIT_DOM;
+              break;
+            }
           } catch (e: any) {
-            this.logger.error(`[STATE_MACHINE] STATE=CLICK_PRIMARY_CTA Falha ao clicar no CTA: ${e.message}`);
+            this.logger.info(`[STATE_MACHINE] STATE=CLICK_PRIMARY_CTA CTA não encontrado: ${e.message}`);
             if (inspection?.hasMLB) {
               state = NavigationState.VALIDATE_PRODUCT;
             } else {
-              throw e;
+              return {
+                success: true,
+                is_produto: false,
+                tipo_pagina: 'nao_produto',
+                marketplace: this.getMarketplaceName(),
+                id_produto: null,
+                nome_produto: await rawPage.title().catch(() => null),
+                url_imagem: null,
+                url_produto: rawPage.url(),
+                link_afiliado: null,
+                preco_anterior: null,
+                preco_atual: null,
+                mensagem: 'URL válida, porém direciona para uma página inicial, lista, busca ou perfil social (não é um produto individual).'
+              };
             }
           }
-          break;
-        }
-
-        case NavigationState.WAIT_TRANSITION: {
-          this.logger.info(`[STATE_MACHINE] STATE=WAIT_TRANSITION Observando transição pós-clique...`);
-          
-          const result = await this.navigationObserver.waitForTransition(page, pendingClick);
-          pendingClick = null;
-          
-          this.logger.info(`[STATE_MACHINE] STATE=WAIT_TRANSITION Vencedor="${result}"`);
-          currentUrl = new URL(rawPage.url());
-          state = NavigationState.WAIT_DOM;
           break;
         }
 
@@ -255,17 +302,20 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
             if (finalValidation.isValid) {
               state = NavigationState.PRODUCT_PAGE;
             } else {
-              const finalScreenshot = await this.takeScreenshot(rawPage, 'invalid_destination', artifactsDir);
-              throw new MarketplaceUnavailableError(
-                `Confiança da página de produto insuficiente (${finalValidation.confidence}/70).`,
-                'ERROR_PAGE',
-                reClass.title || await rawPage.title(),
-                currentUrl.toString(),
-                this.getMarketplaceName(),
-                finalValidation.evidences.join(', '),
-                finalScreenshot,
-                (await rawPage.content()).substring(0, 500)
-              );
+              return {
+                success: true,
+                is_produto: false,
+                tipo_pagina: 'nao_produto',
+                marketplace: this.getMarketplaceName(),
+                id_produto: null,
+                nome_produto: await rawPage.title().catch(() => null),
+                url_imagem: null,
+                url_produto: rawPage.url(),
+                link_afiliado: null,
+                preco_anterior: null,
+                preco_atual: null,
+                mensagem: 'URL válida, porém direciona para uma página inicial, lista, busca ou perfil social (não é um produto individual).'
+              };
             }
           }
           break;
@@ -280,8 +330,9 @@ export class MercadoLivrePlugin implements IMarketplacePlugin {
         case NavigationState.EXTRACT_PRODUCT: {
           this.logger.info(`[STATE_MACHINE] STATE=EXTRACT_PRODUCT Extraindo dados.`);
           
-          (this as any)._normalizedProduct = await this.productExtractor.extract(page, currentUrl.toString(), this.getMarketplaceName());
+          const extracted = await this.productExtractor.extract(page, currentUrl.toString(), this.getMarketplaceName());
           
+          (this as any)._normalizedProduct = extracted;
           state = NavigationState.FINISHED;
           break;
         }

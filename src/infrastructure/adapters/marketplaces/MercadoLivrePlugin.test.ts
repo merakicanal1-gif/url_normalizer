@@ -57,10 +57,13 @@ test('MercadoLivrePlugin - Navegação direta para produto', async () => {
     extract: async () => ({
       success: true,
       marketplace: 'mercadolivre',
-      url_final: 'https://produto.mercadolivre.com.br/MLB-12345-fone',
       id_produto: 'MLB12345',
-      titulo: 'Fone Bluetooth',
-      imagem: 'https://m.media.com/fone.jpg'
+      nome_produto: 'Fone Bluetooth',
+      url_imagem: 'https://m.media.com/fone.jpg',
+      url_produto: 'https://produto.mercadolivre.com.br/MLB-12345-fone',
+      link_afiliado: null,
+      preco_anterior: null,
+      preco_atual: null
     })
   };
 
@@ -69,7 +72,7 @@ test('MercadoLivrePlugin - Navegação direta para produto', async () => {
 
   assert.strictEqual(result.success, true);
   assert.strictEqual(result.id_produto, 'MLB12345');
-  assert.strictEqual(result.titulo, 'Fone Bluetooth');
+  assert.strictEqual(result.nome_produto, 'Fone Bluetooth');
 });
 
 test('MercadoLivrePlugin - Landing para produto com clique no botão', async () => {
@@ -117,10 +120,13 @@ test('MercadoLivrePlugin - Landing para produto com clique no botão', async () 
     extract: async () => ({
       success: true,
       marketplace: 'mercadolivre',
-      url_final: 'https://produto.mercadolivre.com.br/MLB-12345-fone',
       id_produto: 'MLB12345',
-      titulo: 'Fone Bluetooth',
-      imagem: 'https://m.media.com/fone.jpg'
+      nome_produto: 'Fone Bluetooth',
+      url_imagem: 'https://m.media.com/fone.jpg',
+      url_produto: 'https://produto.mercadolivre.com.br/MLB-12345-fone',
+      link_afiliado: null,
+      preco_anterior: null,
+      preco_atual: null
     })
   };
 
@@ -275,8 +281,7 @@ test('MercadoLivrePlugin - ERROR_PAGE lança MarketplaceUnavailableError', async
       await plugin.normalize(createMockNavigatorPage(), new URL('https://www.mercadolivre.com.br/nao-existe'));
     },
     (err: any) => {
-      assert.strictEqual(err.name, 'MarketplaceUnavailableError');
-      assert.strictEqual(err.pageType, 'ERROR_PAGE');
+      assert.strictEqual(err.name, 'ProductUnavailableError');
       return true;
     }
   );

@@ -1,6 +1,9 @@
 import Fastify from 'fastify';
 import { createRequire } from 'module';
 import * as path from 'path';
+import * as os from 'node:os';
+import { execSync } from 'node:child_process';
+import * as fs from 'node:fs';
 
 // Domain Models
 import { BrowserProfile } from '../../../domain/models/BrowserProfile.js';
@@ -51,6 +54,37 @@ import { browserRoutes } from './routes/browser.js';
 
 // Observability Runtime Boot
 import { OpenTelemetryRuntime } from '../../telemetry/OpenTelemetryRuntime.js';
+
+// 6. Bootstrap do Servidor
+const PORT = Number(process.env.PORT) || 3007;
+const HOST = process.env.HOST || '0.0.0.0';
+
+function getTailscaleIp(): string {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    const list = interfaces[name];
+    if (list) {
+      for (const net of list) {
+        if (net.family === 'IPv4' && !net.internal) {
+          if (net.address.startsWith('100.')) {
+            return net.address;
+          }
+        }
+      }
+    }
+  }
+
+  try {
+    const stdout = execSync('tailscale ip -4', { encoding: 'utf8', timeout: 2000 });
+    if (stdout && stdout.trim()) {
+      return stdout.trim();
+    }
+  } catch (e) {
+    // ignorar
+  }
+
+  return '100.xxx.xxx.xxx (Tailscale não ativo ou não encontrado)';
+}
 
 const fastify = Fastify({
   logger:
@@ -163,8 +197,38 @@ const normalizeService = new NormalizeService(
   normalizeTelemetry
 );
 
+// Hook global de Autenticação via API Key (excluindo endpoints /health)
+fastify.addHook('preHandler', async (request, reply) => {
+  const apiKeyEnabled = process.env.API_KEY_ENABLED === 'true';
+  if (!apiKeyEnabled) {
+    return;
+  }
+
+  if (request.url.startsWith('/health')) {
+    return;
+  }
+
+  const apiKey = request.headers['x-api-key'];
+  const expectedKey = process.env.API_KEY;
+
+  if (!apiKey || apiKey !== expectedKey) {
+    return reply.status(401).send({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Chave de API inválida ou não fornecida.'
+      }
+    });
+  }
+});
+
 // 4. Registro de Rotas
-fastify.register(healthRoutes, { browserHealthService });
+fastify.register(healthRoutes, { 
+  browserHealthService,
+  host: HOST,
+  port: PORT,
+  tailscaleIp: getTailscaleIp()
+});
 fastify.register(normalizeRoutes, { normalizeService });
 fastify.register(browserRoutes, {
   browserRuntime,
@@ -204,9 +268,7 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('uncaughtException', (err) => handleFatalError('uncaughtException', err));
 process.on('unhandledRejection', (reason) => handleFatalError('unhandledRejection', reason));
 
-// 6. Bootstrap do Servidor
-const PORT = Number(process.env.PORT) || 3006;
-const HOST = process.env.HOST || '0.0.0.0';
+// Bootstrap configurado
 
 const start = async () => {
   let runtimeStarted = false;
@@ -230,7 +292,31 @@ const start = async () => {
       host: HOST
     });
 
-    fastify.log.info(`Servidor escutando em http://${HOST}:${PORT}`);
+    const envName = process.env.NODE_ENV === 'production' ? 'Production' : 'Development';
+    const isHeadless = browserConfig.headless ? 'true' : 'false';
+    const tailscaleIp = getTailscaleIp();
+    const isAmazonLoaded = fs.existsSync(path.join(browserConfig.userDataDir, 'amazon')) ? 'Loaded' : 'Not Loaded';
+    const isMercadoLivreLoaded = fs.existsSync(path.join(browserConfig.userDataDir, 'mercadolivre')) ? 'Loaded' : 'Not Loaded';
+    const browserModeStr = browserConfig.browserMode === 'persistent' ? 'Playwright Persistent' : 'Chrome CDP';
+    const isHealthy = browserRuntime.isAlive() ? 'OK' : 'DEGRADED';
+    
+    const hasTailscale = tailscaleIp && !tailscaleIp.includes('não ativo') && !tailscaleIp.includes('não encontrado');
+    const tailnetUrl = hasTailscale ? `http://${tailscaleIp}:${PORT}` : 'http://100.xxx.xxx.xxx:3007';
+
+    console.log('======================================');
+    console.log('URL Normalizer');
+    console.log(`Environment..... ${envName}`);
+    console.log(`Host............ ${HOST}`);
+    console.log(`Port............ ${PORT}`);
+    console.log(`Local........... http://localhost:${PORT}`);
+    console.log(`Tailnet......... ${tailnetUrl}`);
+    console.log(`Browser......... ${browserModeStr}`);
+    console.log(`Headless........ ${isHeadless}`);
+    console.log(`Amazon.......... ${isAmazonLoaded}`);
+    console.log(`Mercado Livre... ${isMercadoLivreLoaded}`);
+    console.log(`Health.......... ${isHealthy}`);
+    console.log('Ready for n8n.');
+    console.log('======================================');
   } catch (err) {
     fastify.log.error(err, 'Erro fatal no bootstrap do servidor. Iniciando limpeza de recursos...');
     

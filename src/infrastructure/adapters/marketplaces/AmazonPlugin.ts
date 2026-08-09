@@ -3,11 +3,15 @@ import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 import { NormalizedProduct } from '../../../domain/models/Product.js';
 import { ChallengeDetectedError } from '../../../domain/errors/ChallengeDetectedError.js';
 import { MarketplaceUnavailableError, MarketplacePageType } from '../../../domain/errors/MarketplaceUnavailableError.js';
+import { ProductNotFoundError } from '../../../domain/errors/ProductNotFoundError.js';
+import { ProductUnavailableError } from '../../../domain/errors/ProductUnavailableError.js';
+import { AffiliateLinkError } from '../../../domain/errors/AffiliateLinkError.js';
 import { IAuthenticationStrategy } from '../../../domain/ports/IAuthenticationStrategy.js';
 import { AmazonAuthenticationStrategy } from './AmazonAuthenticationStrategy.js';
 import { Page } from 'playwright-core';
 import * as path from 'path';
 import * as fs from 'fs';
+import { parsePrice } from './PriceParser.js';
 
 export class AmazonPlugin implements IMarketplacePlugin {
   constructor(
@@ -105,28 +109,19 @@ export class AmazonPlugin implements IMarketplacePlugin {
     }
 
     if (pageType === 'ERROR_PAGE') {
-      throw new MarketplaceUnavailableError(
-        'O marketplace retornou uma página de erro durante a navegação.',
-        'ERROR_PAGE',
-        title,
-        urlStr,
-        this.getMarketplaceName(),
-        signatureMatched,
-        screenshotPath,
-        html.substring(0, 500)
-      );
+      throw new ProductUnavailableError();
     }
 
     // Se for PRODUCT_PAGE ou UNKNOWN, tenta extrair
     const asinMatch = /\/(dp|gp\/product)\/([A-Z0-9]{10})/i.exec(urlStr);
     if (!asinMatch) {
-      throw new Error(`Não foi possível identificar o código do produto (ASIN) na URL: ${urlStr}`);
+      throw new ProductNotFoundError();
     }
 
     const productId = asinMatch[2].toUpperCase();
     const canonicalUrl = `https://${finalUrl.hostname}/dp/${productId}`;
 
-    const extractedData = await page.evaluate<{ title: string; image: string }>(() => {
+    const extractedData = await page.evaluate<{ title: string; image: string; currentPriceText: string; previousPriceText: string }>(() => {
       const titleEl = document.querySelector('#productTitle');
       const titleText = titleEl ? titleEl.textContent?.trim() || '' : '';
 
@@ -154,17 +149,167 @@ export class AmazonPlugin implements IMarketplacePlugin {
         }
       }
 
-      return { title: titleText, image };
+      // Preço Atual
+      let currentPriceText = '';
+      const priceSelectors = [
+        '.priceToPay .a-offscreen',
+        '.apexPriceToPay .a-offscreen',
+        '#price_inside_buybox',
+        '#priceblock_ourprice',
+        '#priceblock_dealprice',
+        '.a-price .a-offscreen'
+      ];
+      for (const selector of priceSelectors) {
+        const el = document.querySelector(selector);
+        if (el && el.textContent?.trim()) {
+          currentPriceText = el.textContent.trim();
+          break;
+        }
+      }
+      if (!currentPriceText) {
+        const wholeEl = document.querySelector('.priceToPay .a-price-whole');
+        const fractionEl = document.querySelector('.priceToPay .a-price-fraction');
+        if (wholeEl) {
+          currentPriceText = wholeEl.textContent?.trim() + (fractionEl ? ',' + fractionEl.textContent?.trim() : '');
+        }
+      }
+
+      // Preço Anterior
+      let previousPriceText = '';
+      const prevPriceSelectors = [
+        '.basisPrice .a-offscreen',
+        '.a-text-price[data-a-strike="true"] .a-offscreen',
+        '.a-text-price[data-a-strike="true"]',
+        '#listPrice'
+      ];
+      for (const selector of prevPriceSelectors) {
+        const el = document.querySelector(selector);
+        if (el && el.textContent?.trim()) {
+          previousPriceText = el.textContent.trim();
+          break;
+        }
+      }
+
+      return { title: titleText, image, currentPriceText, previousPriceText };
     });
+
+    const preco_atual = parsePrice(extractedData.currentPriceText);
+    const preco_anterior = parsePrice(extractedData.previousPriceText);
+
+    // Tentar obter o link de associado oficial via SiteStripe se disponível
+    if (!extractedData.title) {
+      throw new ProductUnavailableError();
+    }
+
+    let link_afiliado: string | null = null;
+    let generatedLink: string | null = null;
+    const tag = process.env.AMAZON_AFFILIATE_TAG || '17072212-20';
+    const fallbackAffiliateLink = `${canonicalUrl}?tag=${tag}`;
+
+    try {
+      const rawPage = (page as any).getRawPage ? (page as any).getRawPage() : page;
+      const isRealPlaywright = typeof rawPage.locator === 'function' && typeof rawPage.locator('body').count === 'function';
+      if (!isRealPlaywright) {
+        link_afiliado = fallbackAffiliateLink;
+      } else {
+        const stripeSelector = '#amzn-ss-wrap, #amzn-assoc-stripe, .amzn-ss-wrap';
+        
+        // Checar se o elemento do SiteStripe existe na página
+        const stripeLocator = rawPage.locator(stripeSelector).first();
+        const hasStripe = (await stripeLocator.count().catch(() => 0) > 0) && (await stripeLocator.isVisible().catch(() => false));
+        
+        if (hasStripe) {
+          this.logger.info('[AmazonPlugin] SiteStripe detectado. Tentando obter link de afiliado curto oficial...');
+          
+          const context = rawPage.context();
+          await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+
+          // 1. Instalar spy de clipboard no browser para capturar o link curto instantaneamente
+          await rawPage.evaluate(() => {
+            (window as any).__lastCopiedText = null;
+            if (navigator.clipboard) {
+              const originalWrite = navigator.clipboard.writeText ? navigator.clipboard.writeText.bind(navigator.clipboard) : null;
+              navigator.clipboard.writeText = async (text: string) => {
+                (window as any).__lastCopiedText = text;
+                if (originalWrite) {
+                  return originalWrite(text).catch(() => {});
+                }
+              };
+            }
+          }).catch(() => {});
+
+          // 2. Clicar no botão "Obter link" do SiteStripe
+          const getLinkBtn = rawPage.locator('#amzn-ss-get-link-button, #amzn-ss-text-link button, button:has-text("Obter link"), #amzn-ss-text-link').first();
+          if (await getLinkBtn.count().catch(() => 0) > 0) {
+            await getLinkBtn.click({ force: true, timeout: 3000 }).catch(() => {});
+            
+            // 3. Aguardar o botão "Copiar link de associado" ficar visível no popover
+            const copyBtn = rawPage.locator('#amzn-ss-copy-affiliate-link-btn-announce, #amzn-ss-copy-affiliate-link-btn button, button:has-text("Copiar link de associado"), #amzn-ss-copy-affiliate-link-btn').first();
+            
+            try {
+              await copyBtn.waitFor({ state: 'visible', timeout: 4000 });
+              await copyBtn.click({ force: true, timeout: 2000 });
+            } catch (err) {
+              this.logger.info('[AmazonPlugin] Botão de cópia não apareceu no tempo limite.');
+            }
+
+            // 4. Ler o link curto capturado pelo spy ou pelo clipboard
+            for (let i = 0; i < 8; i++) {
+              await rawPage.waitForTimeout(250);
+              const spyVal = await rawPage.evaluate(() => (window as any).__lastCopiedText);
+              if (spyVal && typeof spyVal === 'string' && (spyVal.includes('amzn.to') || spyVal.includes('link.amazon') || spyVal.includes('amazon.com'))) {
+                generatedLink = spyVal.trim();
+                break;
+              }
+              const clipVal = await rawPage.evaluate(async () => {
+                try {
+                  return await navigator.clipboard.readText();
+                } catch {
+                  return null;
+                }
+              });
+              if (clipVal && (clipVal.includes('amzn.to') || clipVal.includes('link.amazon') || clipVal.includes('amazon.com'))) {
+                generatedLink = clipVal.trim();
+                break;
+              }
+            }
+
+            // 5. Fallback adicional de leitura de inputs/textareas do popover
+            if (!generatedLink) {
+              generatedLink = await rawPage.evaluate(() => {
+                const popover = document.querySelector('#a-popover-content-3, .amzn-ss-popupbox, .a-popover-inner, #amzn-ss-text-popover');
+                if (!popover) return null;
+                const match = popover.innerHTML.match(/https?:\/\/(amzn\.to\/[a-zA-Z0-9_-]+|link\.amazon\/[a-zA-Z0-9_-]+)/);
+                return match ? match[0] : null;
+              }).catch(() => null);
+            }
+          }
+        }
+      }
+
+      if (generatedLink && generatedLink.trim().startsWith('http')) {
+        link_afiliado = generatedLink.trim();
+        this.logger.info(`[AmazonPlugin] Link de associado encurtado obtido via SiteStripe: "${link_afiliado}"`);
+      } else {
+        link_afiliado = fallbackAffiliateLink;
+        this.logger.info(`[AmazonPlugin] Link de afiliado oficial gerado diretamente por tag: "${link_afiliado}"`);
+      }
+    } catch (err: any) {
+      link_afiliado = fallbackAffiliateLink;
+      this.logger.info(`[AmazonPlugin] Fallback para link com tag devido a: ${err.message}`);
+    }
 
     console.log(`[AmazonPlugin] [extract/normalize] Extração concluída. ASIN encontrado="${productId}", Imagem encontrada="${extractedData.image}"`);
     return {
       success: true,
       marketplace: this.getMarketplaceName(),
-      url_final: canonicalUrl,
       id_produto: productId,
-      titulo: extractedData.title,
-      imagem: extractedData.image
+      nome_produto: extractedData.title || '',
+      url_imagem: extractedData.image || null,
+      url_produto: canonicalUrl,
+      link_afiliado,
+      preco_anterior,
+      preco_atual
     };
   }
 }

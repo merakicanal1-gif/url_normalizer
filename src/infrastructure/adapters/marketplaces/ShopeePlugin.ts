@@ -119,10 +119,13 @@ export class ShopeePlugin implements IMarketplacePlugin {
     return {
       success: true,
       marketplace: this.getMarketplaceName(),
-      url_final: canonicalUrl,
       id_produto: `${shopId}.${productId}`,
-      titulo: extractedData.title,
-      imagem: extractedData.image
+      nome_produto: extractedData.title || '',
+      url_imagem: extractedData.image || null,
+      url_produto: canonicalUrl,
+      link_afiliado: null,
+      preco_anterior: null,
+      preco_atual: null
     };
   }
 }

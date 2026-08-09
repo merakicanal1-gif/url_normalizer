@@ -20,21 +20,10 @@ export class MercadoLivrePageClassifier implements IPageClassifier {
     if (lowerHtml.includes('token.awswaf.com') || lowerHtml.includes('awswafintegration')) {
       pageType = 'WAF_PAGE';
       evidences.push('Detected AWS WAF tokens/scripts in HTML content');
-    } else if (
-      lowerUrl.includes('/ap/signin') ||
-      lowerUrl.includes('/login') ||
-      lowerUrl.includes('/signin') ||
-      lowerUrl.includes('/gz/account-verification')
-    ) {
+    } else if (lowerUrl.includes('registration-flows') || lowerUrl.includes('login') || lowerUrl.includes('account-verification') || lowerUrl.includes('challenge')) {
       pageType = 'LOGIN_PAGE';
       evidences.push('URL indicates authentication page');
-    } else if (
-      lowerHtml.includes('captchacharacters') ||
-      lowerHtml.includes('/errors/validatecaptcha') ||
-      lowerHtml.includes('g-recaptcha') ||
-      lowerTitle.includes('robot check') ||
-      lowerTitle.includes('access denied')
-    ) {
+    } else if (lowerUrl.includes('captcha') || lowerHtml.includes('datadome') || lowerHtml.includes('captcha') || lowerHtml.includes('g-recaptcha') || lowerTitle.includes('robot check') || lowerTitle.includes('access denied')) {
       pageType = 'CAPTCHA_PAGE';
       evidences.push('Detected robot check / validatecaptcha in HTML or Title');
     }
@@ -48,13 +37,13 @@ export class MercadoLivrePageClassifier implements IPageClassifier {
       evidences.push(`Canonical URL found: ${canonical}`);
     }
 
-    const hasMLB = /MLB-?(\d+)/i.test(url) || (!!canonical && (/MLB-?(\d+)/i.test(canonical) || /\/p\/MLB/i.test(canonical)));
+    const hasMLB = /MLB[U]?-?(\d+)/i.test(url) || (!!canonical && (/MLB[U]?-?(\d+)/i.test(canonical) || /\/p\/MLB/i.test(canonical) || /\/up\/MLB/i.test(canonical)));
     if (hasMLB) {
       evidences.push('MLB code present in current URL or Canonical URL');
     }
 
     const hasProductTitle = await rawPage.evaluate(() => {
-      const el = document.querySelector('h1.ui-pdp-title') || document.querySelector('.ui-pdp-title');
+      const el = document.querySelector('h1.ui-pdp-title, .ui-pdp-title, h1');
       return !!(el && el.textContent?.trim());
     });
     if (hasProductTitle) {
@@ -62,34 +51,42 @@ export class MercadoLivrePageClassifier implements IPageClassifier {
     }
 
     const hasBuyBox = await rawPage.evaluate(() => {
-      return !!(document.querySelector('.ui-pdp-actions') || document.querySelector('[class*="ui-pdp-actions"]'));
+      return !!(document.querySelector('.ui-pdp-actions, [class*="ui-pdp-actions"], [class*="buybox"], form[action*="checkout"], .andes-button--loud'));
     });
     if (hasBuyBox) {
       evidences.push('PDP actions block (.ui-pdp-actions) found');
     }
 
     const hasProductImage = await rawPage.evaluate(() => {
-      return !!(document.querySelector('img.ui-pdp-gallery__figure__image') || document.querySelector('.ui-pdp-gallery__figure__image img'));
+      return !!(document.querySelector('img.ui-pdp-gallery__figure__image, .ui-pdp-gallery__figure__image img, .ui-pdp-gallery img, img[data-zoom]'));
     });
     if (hasProductImage) {
       evidences.push('PDP product gallery image is present');
     }
 
     const hasCTA = await rawPage.evaluate(() => {
-      const el = document.querySelector('[data-testid*="product"], [aria-label*="produto"], [aria-label*="producto"]');
-      if (el) return true;
-      const elements = Array.from(document.querySelectorAll('a, button, [role="button"]'));
-      const textRegex = /ir (para (o )?produto|al producto)/i;
-      return elements.some(el2 => textRegex.test(el2.textContent || ''));
+      const elements = Array.from(document.querySelectorAll('a, button, [role="button"], .ui-pdp-action--primary'));
+      const textRegex = /ir (para )?(o )?produto|al producto|ver produto|comprar agora|acessar produto/i;
+      const foundText = elements.some(el2 => textRegex.test(el2.textContent?.trim() || ''));
+      if (foundText) return true;
+
+      const productLink = document.querySelector('a[href*="produto.mercadolivre.com.br/MLB"], a[href*="/p/MLB"], a[href*="/up/MLB"]');
+      return !!productLink;
     });
     if (hasCTA) {
-      evidences.push('CTA primary button ("Ir para o produto" / "Ir al producto") visible or has testid/aria-label');
+      evidences.push('CTA primary button ("Ir para produto" / "Ir al producto") or featured product link visible');
     }
 
-    // 3. Verificar erro estrutural
+    // 3. Verificar erro estrutural ou página de lista/social/loja sem CTA
+    const isSocialOrList = lowerUrl.includes('/social/') || lowerUrl.includes('/lists') || lowerUrl.includes('/perfil/');
+    if (isSocialOrList) {
+      evidences.push('Social profile or list detected');
+    }
+
     const hasErrorPlaceholder = await rawPage.evaluate(() => {
       const placeholder = document.querySelector('.andes-placeholder__title') || 
                           document.querySelector('.ui-search-empty-state__title') || 
+                          document.querySelector('.ui-empty-state') ||
                           document.querySelector('#error-page') ||
                           document.querySelector('.ui-error');
       return !!placeholder;
@@ -104,9 +101,10 @@ export class MercadoLivrePageClassifier implements IPageClassifier {
                           lowerHtml.includes('no encontramos esa página') || 
                           lowerHtml.includes('parece que essa página não existe') || 
                           lowerHtml.includes('parece que esta página no existe') ||
+                          lowerHtml.includes('id does not exist') ||
                           lowerHtml.includes('hubo un error accediendo a esta pagina');
 
-    const isErrorPage = hasErrorPlaceholder || (isErrorTitle && hasErrorTexts);
+    const isErrorPage = hasErrorPlaceholder || (isErrorTitle && hasErrorTexts) || lowerHtml.includes('id does not exist');
     if (isErrorPage) {
       evidences.push('Error structural page pattern matches');
     }

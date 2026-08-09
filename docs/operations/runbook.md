@@ -8,31 +8,27 @@ Este documento detalha os procedimentos recomendados para a inicialização, adm
 
 ### 1. Requisitos Prévios
 * **Node.js**: v22.x LTS ou superior.
-* **Docker & Docker Compose** (para instanciar o container local do Browserless).
+* **Playwright**: Instalado automaticamente com as dependências do npm.
 
-### 2. Inicializando o Provedor do Browserless
-```bash
-docker compose up -d
-```
-* O container local escutará na porta host `3001` (`ws://localhost:3001`).
-
-### 3. Configurando Variáveis de Ambiente (`.env`)
+### 2. Configurando Variáveis de Ambiente (`.env`)
 Copie o arquivo `.env.example` para `.env` e configure:
 ```env
-PORT=3000
-BROWSERLESS_URL=ws://localhost:3001
-SESSION_SECRET=sua-chave-secreta-de-32-caracteres-aqui
+PORT=3007
+BROWSER_MODE=persistent
+AUTO_START_BROWSER=true
 ```
 
-### 4. Executando o Servidor HTTP
+### 3. Executando o Servidor HTTP
 * **Modo Desenvolvimento**:
   ```bash
   npm run dev
   ```
 * **Produção**:
   ```bash
-  npm run build && npm run start
+  npm run build
+  npm start
   ```
+Após inicializar o servidor, o Playwright instanciará os contextos persistentes automaticamente. A API estará operacional na porta 3007.
 
 ---
 
@@ -41,14 +37,14 @@ SESSION_SECRET=sua-chave-secreta-de-32-caracteres-aqui
 ### 1. Criar Sessão Interativa (Login Humano)
 Disparar a criação para o marketplace e ID de perfil correspondentes:
 ```bash
-curl -i -X POST http://localhost:3000/sessions/amazon/amazon-main/interactive
+curl -i -X POST http://localhost:3007/sessions/amazon/amazon-main/interactive
 ```
 * Guarde o `sessionId` retornado e o link do DevTools/VNC para acesso visual do operador.
 
 ### 2. Transicionar Status
 Transicione a sessão para `LOGIN_IN_PROGRESS` enquanto o login é efetuado, e depois para `READY_TO_SAVE`:
 ```bash
-curl -i -X PATCH http://localhost:3000/sessions/amazon/amazon-main/interactive \
+curl -i -X PATCH http://localhost:3007/sessions/amazon/amazon-main/interactive \
   -H "Content-Type: application/json" \
   -d '{"transition": "READY_TO_SAVE"}'
 ```
@@ -56,7 +52,7 @@ curl -i -X PATCH http://localhost:3000/sessions/amazon/amazon-main/interactive \
 ### 3. Salvar os Cookies da Sessão
 Após o login com sucesso, grave em arquivo local criptografado:
 ```bash
-curl -i -X POST http://localhost:3000/sessions/amazon/amazon-main/save
+curl -i -X POST http://localhost:3007/sessions/amazon/amazon-main/save
 ```
 
 ---
@@ -66,7 +62,7 @@ curl -i -X POST http://localhost:3000/sessions/amazon/amazon-main/save
 ### Interpretação do Health Check
 Consulte a integridade da conexão Browserless:
 ```bash
-curl -i http://localhost:3000/infrastructure/browser/health
+curl -i http://localhost:3007/infrastructure/browser/health
 ```
 * Verifique se `"connected": true` e se `"registeredContexts"` e `"registeredPages"` estão zerados pós-salvamento (indicando zero vazamentos de recursos).
 

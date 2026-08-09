@@ -25,13 +25,22 @@ test('AmazonPlugin - produto', async () => {
 
   const mockNavigatorPage: INavigatorPage = {
     getRawPage: () => mockRawPage,
-    evaluate: async () => ({ title: 'iPhone 16 Pro Max', image: 'https://m.media.com/iphone.jpg' }),
+    evaluate: async () => ({ 
+      title: 'iPhone 16 Pro Max', 
+      image: 'https://m.media.com/iphone.jpg',
+      currentPriceText: '199.90',
+      previousPriceText: '249.90'
+    }),
     close: async () => {}
   } as unknown as INavigatorPage;
 
   const result = await plugin.normalize(mockNavigatorPage, new URL('https://www.amazon.com.br/dp/B0DJFRHR1G'));
   assert.strictEqual(result.success, true);
   assert.strictEqual(result.id_produto, 'B0DJFRHR1G');
+  assert.strictEqual(result.nome_produto, 'iPhone 16 Pro Max');
+  assert.strictEqual(result.url_imagem, 'https://m.media.com/iphone.jpg');
+  assert.strictEqual(result.preco_atual, 199.90);
+  assert.strictEqual(result.preco_anterior, 249.90);
 });
 
 test('AmazonPlugin - WAF', async () => {

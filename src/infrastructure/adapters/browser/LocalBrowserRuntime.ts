@@ -4,10 +4,13 @@ import { BrowserConfig } from './BrowserConfig.js';
 import { IApplicationEventBus } from '../../../domain/ports/IApplicationEventBus.js';
 import { BrowserNotRunningError } from '../../../domain/errors/BrowserNotRunningError.js';
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 export class LocalBrowserRuntime implements IBrowserRuntime {
-  private context: BrowserContext | null = null;
-  private browser: Browser | null = null;
+  private context: BrowserContext | null = null; // Representa o contexto padrão ('default')
+  private browser: Browser | null = null;         // Utilizado apenas no modo CDP
+  private contexts = new Map<string, BrowserContext>();
   private managedPages = new Set<Page>();
   private manualPages = new Set<Page>();
   private startTime: number = 0;
@@ -29,18 +32,36 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
   private async ensureStarted(): Promise<void> {
     let needsRecovery = false;
 
-    if (!this.context || !this.isRunning) {
-      needsRecovery = true;
+    if (this.config.browserMode === 'cdp') {
+      if (!this.context || !this.isRunning || !this.browser || !this.browser.isConnected()) {
+        needsRecovery = true;
+      }
     } else {
-      try {
-        // Testar se o contexto de fato está acessível
-        this.context.pages();
-        const browser = this.context.browser();
-        if (!browser || !browser.isConnected()) {
+      // Modo persistent: garantir que default, amazon e mercadolivre estejam ativos
+      if (!this.isRunning || !this.context) {
+        needsRecovery = true;
+      } else {
+        try {
+          // Tenta ler abas do contexto padrão
+          this.context.pages();
+
+          // Verificar os perfis específicos
+          const amazonCtx = this.contexts.get('amazon');
+          if (amazonCtx) {
+            amazonCtx.pages();
+          } else {
+            needsRecovery = true;
+          }
+
+          const mlCtx = this.contexts.get('mercadolivre');
+          if (mlCtx) {
+            mlCtx.pages();
+          } else {
+            needsRecovery = true;
+          }
+        } catch (err) {
           needsRecovery = true;
         }
-      } catch (err) {
-        needsRecovery = true;
       }
     }
 
@@ -53,44 +74,198 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
         this.recovered = true;
         this.logger.info('[LocalBrowserRuntime] Conexão CDP restabelecida com sucesso.');
       } else {
-        this.logger.warn?.('[LocalBrowserRuntime] Detetada desconexão ou fechamento do navegador. Iniciando recuperação automática...');
+        this.logger.warn?.('[LocalBrowserRuntime] Detetada desconexão ou fechamento de contextos persistentes. Iniciando recuperação automática...');
         await this.cleanInternalState();
         await this.start();
         this.recovered = true;
-        this.logger.info('[LocalBrowserRuntime] Navegador recuperado e reiniciado com sucesso.');
+        this.logger.info('[LocalBrowserRuntime] Runtime persistente recuperado e reiniciado com sucesso.');
       }
     }
   }
 
   private async cleanInternalState(): Promise<void> {
     const isCdp = this.config.browserMode === 'cdp';
-    if (this.context) {
+    for (const [key, ctx] of this.contexts.entries()) {
       try {
         if (isCdp) {
-          // Close only managed pages (API-owned pages)
-          const pagesToClose = [...this.managedPages];
+          const pagesToClose = [...this.managedPages].filter(p => {
+            try {
+              return p.context() === ctx;
+            } catch (e) {
+              return false;
+            }
+          });
           for (const page of pagesToClose) {
             await page.close().catch(() => {});
           }
         } else {
-          // In persistent mode, close all pages and context
-          const pages = this.context.pages();
+          const pages = ctx.pages();
           for (const page of pages) {
             await page.close().catch(() => {});
           }
-          await this.context.close().catch(() => {});
+          await ctx.close().catch(() => {});
         }
       } catch (e) {
-        // Ignorar erros caso já esteja fechado
+        // Ignorar falhas ao tentar fechar páginas/contextos já limpos
       }
-      this.context = null;
     }
+    this.contexts.clear();
+    this.context = null;
     this.browser = null;
     this.managedPages.clear();
     if (!isCdp) {
       this.manualPages.clear();
     }
     this.isRunning = false;
+  }
+
+  private async getOrCreateContext(key: string): Promise<BrowserContext> {
+    let ctx = this.contexts.get(key);
+    if (!ctx) {
+      const isCdp = this.config.browserMode === 'cdp';
+      if (isCdp) {
+        if (!this.browser) {
+          throw new Error('Navegador CDP não conectado.');
+        }
+        const statePath = path.join(process.cwd(), 'data', `session_${key}.json`);
+        const options: any = {};
+        if (fs.existsSync(statePath)) {
+          this.logger.info(`[LocalBrowserRuntime] Carregando storageState para ${key} de ${statePath}`);
+          try {
+            options.storageState = statePath;
+          } catch (e: any) {
+            this.logger.error(`[LocalBrowserRuntime] Falha ao ler storageState para ${key}: ${e.message}`);
+          }
+        }
+        ctx = await this.browser.newContext(options);
+        ctx.on('close', () => {
+          this.contexts.delete(key);
+        });
+        this.contexts.set(key, ctx);
+      } else {
+        const dir = path.join(this.config.userDataDir, key);
+        this.logger.info(`[LocalBrowserRuntime] Inicializando persistent context para ${key} em ${dir}`);
+        ctx = await chromium.launchPersistentContext(dir, {
+          headless: this.config.headless,
+          executablePath: this.config.executablePath,
+          args: this.config.args,
+          viewport: this.config.viewport,
+          locale: this.config.locale,
+          timezoneId: this.config.timezone,
+          userAgent: this.config.userAgent,
+          acceptDownloads: this.config.downloads,
+          slowMo: this.config.slowMo
+        });
+
+        await ctx.addInitScript('Object.defineProperty(navigator, "webdriver", { get: () => undefined });');
+        
+        ctx.on('close', () => {
+          this.logger.warn?.(`[LocalBrowserRuntime] O BrowserContext para ${key} foi fechado.`);
+          this.contexts.delete(key);
+          if (key === 'default') {
+            this.context = null;
+            this.isRunning = false;
+          }
+        });
+
+        // Configurar auto-recuperação proativa no caso de desconexão inesperada
+        ctx.browser()?.on('disconnected', () => {
+          this.logger.warn?.(`[LocalBrowserRuntime] O navegador Chromium associado ao contexto ${key} foi desconectado.`);
+          this.contexts.delete(key);
+          if (key === 'default') {
+            this.context = null;
+            this.isRunning = false;
+          }
+          
+          // Auto-recuperação debouncada para evitar loops de consumo de CPU
+          setTimeout(() => {
+            if (!this.isRunning) {
+              this.logger.info('[LocalBrowserRuntime] Iniciando recuperação automática proativa por desconexão...');
+              this.ensureStarted().catch(err => {
+                this.logger.error('[LocalBrowserRuntime] Falha na recuperação automática proativa', err);
+              });
+            }
+          }, 1000);
+        });
+
+        this.contexts.set(key, ctx);
+
+        if (key === 'default') {
+          this.context = ctx;
+        }
+
+        // Publicar evento de contexto criado no eventBus
+        this.eventBus.publish({
+          eventId: crypto.randomUUID(),
+          event: 'BROWSER_CONTEXT_CREATED',
+          version: 1,
+          occurredAt: new Date().toISOString(),
+          source: 'LocalBrowserRuntime',
+          traceId: null,
+          requestId: null,
+          sessionId: null,
+          marketplace: key === 'default' ? null : key,
+          profileId: key === 'default' ? 'default' : key,
+          payload: { 
+            type: this.config.headless ? 'headless' : 'headful',
+            contextId: `persistent-context-${key}`
+          }
+        });
+      }
+    }
+    return ctx;
+  }
+
+  public isAlive(): boolean {
+    if (!this.isRunning) return false;
+    const isCdp = this.config.browserMode === 'cdp';
+    if (isCdp) {
+      return this.browser ? this.browser.isConnected() : false;
+    } else {
+      return this.getIsContextAlive();
+    }
+  }
+
+  public getIsContextAliveFor(key: string): boolean {
+    const ctx = this.contexts.get(key);
+    if (!ctx) return false;
+    try {
+      ctx.pages();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  public getIsContextAlive(): boolean {
+    if (this.config.browserMode === 'cdp') {
+      if (!this.context) return false;
+      try {
+        this.context.pages();
+        const browser = this.context.browser();
+        return browser ? browser.isConnected() : false;
+      } catch (e) {
+        return false;
+      }
+    } else {
+      // Modo persistente: todos os contextos básicos de produção (default, amazon, mercadolivre) devem estar funcionais
+      if (!this.context) return false;
+      try {
+        this.context.pages();
+
+        const amazonCtx = this.contexts.get('amazon');
+        if (amazonCtx) amazonCtx.pages();
+        else return false;
+
+        const mlCtx = this.contexts.get('mercadolivre');
+        if (mlCtx) mlCtx.pages();
+        else return false;
+
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
   }
 
   public async connect(): Promise<void> {
@@ -116,25 +291,10 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
       this.lastReconnectTime = new Date().toISOString();
       this.isRunning = true;
 
-      // Listeners
       this.browser.on('disconnected', () => {
         this.logger.warn?.('[LocalBrowserRuntime] O Chromium browser via CDP foi desconectado.');
         this.isRunning = false;
         
-        this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          event: 'BROWSER_CONTEXT_CLOSED',
-          version: 1,
-          occurredAt: new Date().toISOString(),
-          source: 'LocalBrowserRuntime',
-          traceId: null,
-          requestId: null,
-          sessionId: null,
-          marketplace: null,
-          profileId: null,
-          payload: { contextId: 'default' }
-        });
-
         this.eventBus.publish({
           eventId: crypto.randomUUID(),
           event: 'BROWSER_STOPPED',
@@ -148,42 +308,6 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
           profileId: null,
           payload: { type: this.config.headless ? 'headless' : 'headful' }
         });
-      });
-
-      const browserVersion = this.browser ? (this.browser.version() || 'unknown') : 'unknown';
-
-      this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        event: 'BROWSER_STARTED',
-        version: 1,
-        occurredAt: new Date().toISOString(),
-        source: 'LocalBrowserRuntime',
-        traceId: null,
-        requestId: null,
-        sessionId: null,
-        marketplace: null,
-        profileId: null,
-        payload: { 
-          type: this.config.headless ? 'headless' : 'headful',
-          version: browserVersion
-        }
-      });
-
-      this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        event: 'BROWSER_CONTEXT_CREATED',
-        version: 1,
-        occurredAt: new Date().toISOString(),
-        source: 'LocalBrowserRuntime',
-        traceId: null,
-        requestId: null,
-        sessionId: null,
-        marketplace: null,
-        profileId: null,
-        payload: { 
-          type: this.config.headless ? 'headless' : 'headful',
-          contextId: 'default'
-        }
       });
 
       this.logger.info(`[LocalBrowserRuntime] Conectado via CDP com sucesso ao endpoint: ${this.config.cdpEndpoint}`);
@@ -210,6 +334,36 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
     this.context = null;
     this.browser = null;
     this.isRunning = false;
+    this.logger.info('[LocalBrowserRuntime] Desconexão concluída com sucesso.');
+  }
+
+  public async start(): Promise<void> {
+    const isCdp = this.config.browserMode === 'cdp';
+    if (isCdp) {
+      await this.connect();
+    } else {
+      this.logger.info('[LocalBrowserRuntime] Inicializando runtime persistente...');
+      try {
+        await this.cleanInternalState();
+
+        // Inicializar e carregar os contextos persistentes necessários em paralelo/sequência
+        await this.getOrCreateContext('default');
+        await this.getOrCreateContext('amazon');
+        await this.getOrCreateContext('mercadolivre');
+
+        this.startTime = Date.now();
+        this.isRunning = true;
+        this.logger.info('[LocalBrowserRuntime] Runtime persistente inicializado com sucesso.');
+      } catch (err: any) {
+        this.logger.error('[LocalBrowserRuntime] Falha fatal ao inicializar o runtime persistente', err);
+        throw err;
+      }
+    }
+  }
+
+  public async shutdown(): Promise<void> {
+    this.logger.info('[LocalBrowserRuntime] Encerrando runtime do navegador...');
+    await this.cleanInternalState();
 
     this.eventBus.publish({
       eventId: crypto.randomUUID(),
@@ -222,7 +376,7 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
       sessionId: null,
       marketplace: null,
       profileId: null,
-      payload: { contextId: 'default' }
+      payload: { contextId: 'persistent-context-all' }
     });
 
     this.eventBus.publish({
@@ -239,162 +393,7 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
       payload: { type: this.config.headless ? 'headless' : 'headful' }
     });
 
-    this.logger.info('[LocalBrowserRuntime] Desconexão concluída com sucesso.');
-  }
-
-  public async start(): Promise<void> {
-    const isCdp = this.config.browserMode === 'cdp';
-    if (isCdp) {
-      await this.connect();
-    } else {
-      this.logger.info('[LocalBrowserRuntime] Inicializando navegador persistente...');
-
-      try {
-        this.context = await chromium.launchPersistentContext(this.config.userDataDir, {
-          headless: this.config.headless,
-          args: this.config.args,
-          viewport: this.config.viewport,
-          locale: this.config.locale,
-          timezoneId: this.config.timezone,
-          userAgent: this.config.userAgent,
-          acceptDownloads: this.config.downloads,
-          slowMo: this.config.slowMo
-        });
-
-        // Evasão contra detecções do navigator.webdriver no nível Chromium
-        await this.context.addInitScript('Object.defineProperty(navigator, "webdriver", { get: () => undefined });');
-
-        this.startTime = Date.now();
-        this.isRunning = true;
-
-        // Registrar eventos para capturar fechamento assíncrono
-        this.context.on('close', () => {
-          this.logger.warn?.('[LocalBrowserRuntime] O BrowserContext foi fechado de forma assíncrona.');
-          this.isRunning = false;
-        });
-
-        this.context.browser()?.on('disconnected', () => {
-          this.logger.warn?.('[LocalBrowserRuntime] O Chromium browser foi desconectado.');
-          this.isRunning = false;
-          
-          this.eventBus.publish({
-            eventId: crypto.randomUUID(),
-            event: 'BROWSER_CONTEXT_CLOSED',
-            version: 1,
-            occurredAt: new Date().toISOString(),
-            source: 'LocalBrowserRuntime',
-            traceId: null,
-            requestId: null,
-            sessionId: null,
-            marketplace: null,
-            profileId: null,
-            payload: { contextId: 'persistent-context' }
-          });
-
-          this.eventBus.publish({
-            eventId: crypto.randomUUID(),
-            event: 'BROWSER_STOPPED',
-            version: 1,
-            occurredAt: new Date().toISOString(),
-            source: 'LocalBrowserRuntime',
-            traceId: null,
-            requestId: null,
-            sessionId: null,
-            marketplace: null,
-            profileId: null,
-            payload: { type: this.config.headless ? 'headless' : 'headful' }
-          });
-        });
-
-        const browser = this.context.browser();
-        const version = browser ? (browser.version() || 'unknown') : 'unknown';
-
-        this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          event: 'BROWSER_STARTED',
-          version: 1,
-          occurredAt: new Date().toISOString(),
-          source: 'LocalBrowserRuntime',
-          traceId: null,
-          requestId: null,
-          sessionId: null,
-          marketplace: null,
-          profileId: null,
-          payload: { 
-            type: this.config.headless ? 'headless' : 'headful',
-            version
-          }
-        });
-
-        this.eventBus.publish({
-          eventId: crypto.randomUUID(),
-          event: 'BROWSER_CONTEXT_CREATED',
-          version: 1,
-          occurredAt: new Date().toISOString(),
-          source: 'LocalBrowserRuntime',
-          traceId: null,
-          requestId: null,
-          sessionId: null,
-          marketplace: null,
-          profileId: null,
-          payload: { 
-            type: this.config.headless ? 'headless' : 'headful',
-            contextId: 'persistent-context'
-          }
-        });
-
-        this.logger.info(`[LocalBrowserRuntime] Navegador persistente iniciado com sucesso no diretório: ${this.config.userDataDir}`);
-      } catch (err: any) {
-        this.logger.error('[LocalBrowserRuntime] Falha fatal ao inicializar o navegador persistente', err);
-        throw err;
-      }
-    }
-  }
-
-  public async shutdown(): Promise<void> {
-    const isCdp = this.config.browserMode === 'cdp';
-    if (isCdp) {
-      this.logger.info('[LocalBrowserRuntime] Encerrando runtime (CDP)...');
-      const pagesToClose = [...this.managedPages];
-      for (const page of pagesToClose) {
-        await page.close().catch(() => {});
-      }
-      this.managedPages.clear();
-      await this.disconnect();
-    } else {
-      this.logger.info('[LocalBrowserRuntime] Encerrando navegador persistente...');
-      await this.cleanInternalState();
-
-      this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        event: 'BROWSER_CONTEXT_CLOSED',
-        version: 1,
-        occurredAt: new Date().toISOString(),
-        source: 'LocalBrowserRuntime',
-        traceId: null,
-        requestId: null,
-        sessionId: null,
-        marketplace: null,
-        profileId: null,
-        payload: { contextId: 'persistent-context' }
-      });
-
-      this.eventBus.publish({
-        eventId: crypto.randomUUID(),
-        event: 'BROWSER_STOPPED',
-        version: 1,
-        occurredAt: new Date().toISOString(),
-        source: 'LocalBrowserRuntime',
-        traceId: null,
-        requestId: null,
-        sessionId: null,
-        marketplace: null,
-        profileId: null,
-        payload: { type: this.config.headless ? 'headless' : 'headful' }
-      });
-
-      this.logger.info('[LocalBrowserRuntime] Navegador persistente encerrado com sucesso.');
-    }
+    this.logger.info('[LocalBrowserRuntime] Runtime do navegador encerrado com sucesso.');
   }
 
   public async getPersistentContext(): Promise<BrowserContext> {
@@ -405,15 +404,25 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
     return this.context;
   }
 
-  public async newPage(isManaged: boolean = true): Promise<Page> {
+  public async getContext(marketplace?: string): Promise<BrowserContext> {
     await this.ensureStarted();
-    const context = await this.getPersistentContext();
+    const key = marketplace ? marketplace.toLowerCase() : 'default';
+    return this.getOrCreateContext(key);
+  }
 
-    // Warn de possível vazamento se houver muitas páginas abertas
+  public async newPage(isManaged: boolean = true, marketplace?: string): Promise<Page> {
+    await this.ensureStarted();
+    const context = await this.getContext(marketplace);
+
     const totalPages = this.managedPages.size + this.manualPages.size;
-    if (totalPages >= 5) {
-      const warnMsg = `[LocalBrowserRuntime] ALERTA: Alto volume de abas abertas detectado (${totalPages} abas: ${this.managedPages.size} gerenciadas, ${this.manualPages.size} manuais). Possível vazamento de abas.`;
-      this.logger.warn?.(warnMsg);
+    if (totalPages >= 3) {
+      this.logger.info(`[LocalBrowserRuntime] Limpando ${this.managedPages.size} abas gerenciadas antigas...`);
+      for (const p of this.managedPages) {
+        if (!p.isClosed()) {
+          await p.close().catch(() => {});
+        }
+      }
+      this.managedPages.clear();
     }
 
     const page = await context.newPage();
@@ -424,10 +433,21 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
       this.manualPages.add(page);
     }
 
-    // Registrar o fechamento da página para limpar do gerenciamento
-    page.on('close', () => {
+    const key = marketplace ? marketplace.toLowerCase() : 'default';
+    page.on('close', async () => {
       this.managedPages.delete(page);
       this.manualPages.delete(page);
+
+      const isCdp = this.config.browserMode === 'cdp';
+      if (isCdp) {
+        try {
+          const statePath = path.join(process.cwd(), 'data', `session_${key}.json`);
+          this.logger.info(`[LocalBrowserRuntime] Salvando automaticamente o storageState para ${key} em ${statePath}`);
+          await context.storageState({ path: statePath });
+        } catch (e: any) {
+          this.logger.error(`[LocalBrowserRuntime] Erro ao salvar auto-session para ${key}: ${e.message}`);
+        }
+      }
     });
 
     return page;
@@ -442,47 +462,46 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
   }
 
   public async restart(): Promise<void> {
-    const isCdp = this.config.browserMode === 'cdp';
-    if (isCdp) {
-      this.logger.info('[LocalBrowserRuntime] Solicitando reinicialização da conexão CDP...');
-      await this.disconnect();
-      await this.connect();
-    } else {
-      this.logger.info('[LocalBrowserRuntime] Solicitando reinicialização do navegador persistente...');
-      await this.shutdown();
-      await this.start();
-    }
+    this.logger.info('[LocalBrowserRuntime] Reiniciando runtime do navegador...');
+    await this.shutdown();
+    await this.start();
     this.lastRestartTime = new Date().toISOString();
   }
 
   public async closeAllPages(): Promise<void> {
     const isCdp = this.config.browserMode === 'cdp';
-    if (isCdp) {
-      // Close only managed pages (API-owned pages), preserving manual operator pages
-      const pagesToClose = [...this.managedPages];
-      for (const page of pagesToClose) {
-        if (!page.isClosed()) {
-          await page.close().catch(() => {});
-        }
-      }
-      this.managedPages.clear();
-    } else {
-      if (this.context) {
-        try {
-          const openPages = this.context.pages();
+    for (const [key, ctx] of this.contexts.entries()) {
+      try {
+        if (isCdp) {
+          const pagesToClose = [...this.managedPages].filter(p => {
+            try {
+              return p.context() === ctx;
+            } catch (e) {
+              return false;
+            }
+          });
+          for (const page of pagesToClose) {
+            if (!page.isClosed()) {
+              await page.close().catch(() => {});
+            }
+          }
+        } else {
+          const openPages = ctx.pages();
           for (const page of openPages) {
             await page.close().catch(() => {});
           }
-        } catch (e) {
-          this.logger.error('[LocalBrowserRuntime] Falha ao fechar todas as abas', e);
         }
+      } catch (e) {
+        this.logger.error(`[LocalBrowserRuntime] Falha ao fechar todas as abas para o contexto ${key}`, e);
       }
-      this.managedPages.clear();
+    }
+    this.managedPages.clear();
+    if (!isCdp) {
       this.manualPages.clear();
     }
   }
 
-  // Getters para fins de telemetria / BrowserHealthService
+  // Getters para telemetria / BrowserHealthService
   public getStartTime(): number {
     return this.startTime;
   }
@@ -493,17 +512,6 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
 
   public getIsRunning(): boolean {
     return this.isRunning;
-  }
-
-  public getIsContextAlive(): boolean {
-    if (!this.context) return false;
-    try {
-      this.context.pages();
-      const browser = this.context.browser();
-      return browser ? browser.isConnected() : false;
-    } catch (e) {
-      return false;
-    }
   }
 
   public getRecovered(): boolean {
@@ -538,35 +546,17 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
   }
 
   public getContextsCount(): number {
-    if (this.context) {
-      const browser = this.context.browser();
-      if (browser) {
-        return browser.contexts().length;
-      }
-      return 1;
-    }
-    return 0;
+    return this.contexts.size;
   }
 
   public getPagesCount(): number {
-    if (this.context) {
-      const browser = this.context.browser();
-      if (browser) {
-        let total = 0;
-        for (const ctx of browser.contexts()) {
-          try {
-            total += ctx.pages().length;
-          } catch (e) {}
-        }
-        return total;
-      }
+    let total = 0;
+    for (const ctx of this.contexts.values()) {
       try {
-        return this.context.pages().length;
-      } catch (e) {
-        return 0;
-      }
+        total += ctx.pages().length;
+      } catch (e) {}
     }
-    return 0;
+    return total;
   }
 
   public getLastReconnectTime(): string | null {

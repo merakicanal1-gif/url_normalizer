@@ -13,12 +13,14 @@ export class BrowserConfig {
   public readonly args: string[];
   public readonly browserMode: 'persistent' | 'cdp';
   public readonly cdpEndpoint: string;
+    public readonly executablePath: string;
   public readonly autoStartBrowser: boolean;
 
   constructor() {
     this.browserMode = (process.env.BROWSER_MODE as 'persistent' | 'cdp') || 'persistent';
     this.cdpEndpoint = process.env.CDP_ENDPOINT || 'http://127.0.0.1:9222';
     this.autoStartBrowser = process.env.AUTO_START_BROWSER !== 'false';
+    this.executablePath = process.env.CHROME_PATH || (fs.existsSync('/usr/bin/google-chrome') ? '/usr/bin/google-chrome' : undefined as any);
 
     // 1. Resolver diretório principal e garantir sua existência
     const baseDataDir = path.resolve(process.env.SESSION_STORAGE_DIR || './data');
@@ -41,7 +43,7 @@ export class BrowserConfig {
     }
 
     // 2. Carregar configurações ambientais
-    this.headless = process.env.BROWSER_HEADLESS === 'true';
+    this.headless = process.env.PLAYWRIGHT_HEADLESS !== 'false' && process.env.BROWSER_HEADLESS !== 'false';
     this.viewport = {
       width: Number(process.env.BROWSER_VIEWPORT_WIDTH) || 1366,
       height: Number(process.env.BROWSER_VIEWPORT_HEIGHT) || 768
@@ -60,17 +62,37 @@ export class BrowserConfig {
     const isStealth = process.env.PLAYWRIGHT_STEALTH !== 'false';
     const launchArgs: string[] = [
       '--no-sandbox',
-      '--disable-setuid-sandbox'
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--disable-extensions',
+      '--disable-component-update',
+      '--disable-background-networking',
+      '--disable-background-timer-throttling',
+      '--disable-backgrounding-occluded-windows',
+      '--disable-breakpad',
+      '--disable-client-side-phishing-detection',
+      '--disable-default-apps',
+      '--disable-features=Translate,BackForwardCache,AcceptCHFrame,MediaRouter,OptimizationHints',
+      '--disable-hang-monitor',
+      '--disable-ipc-flooding-protection',
+      '--disable-popup-blocking',
+      '--disable-prompt-on-repost',
+      '--disable-renderer-backgrounding',
+      '--disable-sync',
+      '--force-color-profile=srgb',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-first-run',
+      '--safebrowsing-disable-auto-update',
+      '--password-store=basic',
+      '--use-mock-keychain',
+      '--js-flags=--max-old-space-size=256'
     ];
 
     if (isStealth) {
       launchArgs.push('--disable-blink-features=AutomationControlled');
       launchArgs.push('--disable-web-security');
-    }
-
-    if (process.env.NODE_ENV === 'production') {
-      launchArgs.push('--disable-dev-shm-usage');
-      launchArgs.push('--disable-gpu');
     }
 
     this.args = launchArgs;

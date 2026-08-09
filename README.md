@@ -21,7 +21,7 @@ npm install
 ```
 
 ### Configurando o Ambiente
-Copie o arquivo de exemplo `.env.example` para `.env` e ajuste se necessário:
+Copie o arquivo de exemplo `.env.example` para `.env`:
 ```bash
 cp .env.example .env
 ```
@@ -35,6 +35,13 @@ npm run dev
 ```bash
 npm test
 ```
+
+### Executando em Produção
+```bash
+npm run build
+npm start
+```
+A API inicializa automaticamente o navegador persistente em modo headless no boot, ficando pronta para uso na porta **3007**.
 
 ---
 
@@ -90,14 +97,34 @@ Abre uma aba headful no Chromium persistente para login manual ou resolução de
 * **Resposta (200 OK)**:
   ```json
   {
-    "running": true,
-    "persistent": true,
-    "browserVersion": "120.0.0.0",
-    "managedPages": 0,
-    "manualPages": 1,
-    "browserData": "./data/browser",
-    "headless": false,
+    "connected": true,
+    "mode": "persistent",
+    "browser": "Chromium",
     "uptime": 360,
-    "contextOpen": true
+    "ready": true
+  }
+  ```
+
+### 4. Status Geral do Servidor (Produção)
+* **Rota**: `GET /status`
+* **Resposta (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "status": "online",
+    "version": "0.1.0",
+    "environment": "production",
+    "runtime": "persistent",
+    "browser": "running",
+    "headless": true,
+    "host": "0.0.0.0",
+    "port": 3007,
+    "tailscale_ip": "100.101.57.98",
+    "tailscale_url": "http://100.101.57.98:3007",
+    "uptime_seconds": 3600,
+    "sessions": {
+      "amazon": "loaded",
+      "mercadolivre": "loaded"
+    }
   }
   ```

@@ -59,4 +59,38 @@ test('Sprint 2.0.6A — Production configurations, security checks and health ch
     const bodyReadyDegraded = JSON.parse(resReadyDegraded.body);
     assert.strictEqual(bodyReadyDegraded.status, 'degraded');
   });
+
+  await t.test('Status Endpoint - /status', async () => {
+    const healthServiceMock = {
+      getStatus: async () => ({
+        status: 'ok',
+        uptime: 200,
+        details: {
+          ready: true,
+          mode: 'persistent',
+          browser: 'running',
+          headless: true
+        }
+      }),
+      getBrowserConfig: () => ({
+        userDataDir: './data/browser'
+      })
+    } as any;
+
+    const fastify = Fastify();
+    await fastify.register(healthRoutes, { 
+      browserHealthService: healthServiceMock,
+      host: '0.0.0.0',
+      port: 3007,
+      tailscaleIp: '100.101.57.98'
+    });
+
+    const res = await fastify.inject({ method: 'GET', url: '/status' });
+    assert.strictEqual(res.statusCode, 200);
+    const body = JSON.parse(res.body);
+    assert.strictEqual(body.success, true);
+    assert.strictEqual(body.status, 'online');
+    assert.strictEqual(body.runtime, 'persistent');
+    assert.strictEqual(body.tailscale_ip, '100.101.57.98');
+  });
 });

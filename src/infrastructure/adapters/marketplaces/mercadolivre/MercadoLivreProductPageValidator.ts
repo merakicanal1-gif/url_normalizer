@@ -3,7 +3,7 @@ import { PageInspection } from '../../../../domain/models/PageInspection.js';
 
 export class MercadoLivreProductPageValidator implements IProductPageValidator {
   constructor(
-    private readonly minScore: number = 70
+    private readonly minScore: number = 50
   ) {}
 
   public async validate(inspection: PageInspection): Promise<{ isValid: boolean; confidence: number; evidences: string[] }> {

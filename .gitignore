@@ -30,6 +30,7 @@ yarn-error.log*
 # Arquivos temporários
 tmp/
 temp/
+scratch/
 *.tmp
 
 # Sistema operacional

@@ -266,7 +266,35 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
     try {
       await this.cleanInternalState();
 
-      this.browser = await chromium.connectOverCDP(this.config.cdpEndpoint);
+      try {
+        this.browser = await chromium.connectOverCDP(this.config.cdpEndpoint);
+      } catch (cdpErr: any) {
+        if (this.config.autoStartBrowser) {
+          this.logger.info('[LocalBrowserRuntime] Chrome não detectado na porta 9222. Iniciando automaticamente...');
+          try {
+            const { spawn } = await import('child_process');
+            const env = { ...process.env, DISPLAY: process.env.DISPLAY || ':0', WAYLAND_DISPLAY: process.env.WAYLAND_DISPLAY || 'wayland-0' };
+            const chromeProcess = spawn(this.config.executablePath || '/usr/bin/google-chrome', [
+              '--profile-directory=Default',
+              '--password-store=basic',
+              '--remote-debugging-port=9222',
+              '--no-first-run'
+            ], {
+              detached: true,
+              stdio: 'ignore',
+              env
+            });
+            chromeProcess.unref();
+            await new Promise(r => setTimeout(r, 2500));
+            this.browser = await chromium.connectOverCDP(this.config.cdpEndpoint);
+          } catch (spawnErr: any) {
+            this.logger.error('[LocalBrowserRuntime] Falha ao auto-iniciar Chrome', spawnErr);
+            throw new BrowserNotRunningError();
+          }
+        } else {
+          throw new BrowserNotRunningError();
+        }
+      }
       const contexts = this.browser.contexts();
       if (contexts.length === 0) {
         throw new Error("Nenhum BrowserContext disponível.");

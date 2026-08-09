@@ -16,16 +16,16 @@ export class MercadoLivrePageClassifier implements IPageClassifier {
     const evidences: string[] = [];
     let pageType: MarketplacePageType = 'UNKNOWN';
 
-    // 1. Verificar bloqueios de segurança (WAF, Login e CAPTCHA)
+    // 1. Verificar bloqueios de segurança (WAF e Login explícito)
     if (lowerHtml.includes('token.awswaf.com') || lowerHtml.includes('awswafintegration')) {
       pageType = 'WAF_PAGE';
       evidences.push('Detected AWS WAF tokens/scripts in HTML content');
-    } else if (lowerUrl.includes('registration-flows') || lowerUrl.includes('login') || lowerUrl.includes('account-verification') || lowerUrl.includes('challenge')) {
+    } else if (lowerUrl.includes('registration-flows') || lowerUrl.includes('account-verification') || (lowerUrl.includes('/login') && !lowerUrl.includes('afiliados'))) {
       pageType = 'LOGIN_PAGE';
       evidences.push('URL indicates authentication page');
-    } else if (lowerUrl.includes('captcha') || lowerHtml.includes('datadome') || lowerHtml.includes('captcha') || lowerHtml.includes('g-recaptcha') || lowerTitle.includes('robot check') || lowerTitle.includes('access denied')) {
+    } else if (lowerUrl.includes('/validatecaptcha') || lowerTitle.includes('robot check') || lowerTitle.includes('não sou um robô') || lowerTitle.includes('access denied')) {
       pageType = 'CAPTCHA_PAGE';
-      evidences.push('Detected robot check / validatecaptcha in HTML or Title');
+      evidences.push('Detected explicit robot check / validatecaptcha in HTML or Title');
     }
 
     // 2. Extrair dados estruturais para detecção posterior e pontuação de PDP

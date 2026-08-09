@@ -127,20 +127,9 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
         if (!this.browser) {
           throw new Error('Navegador CDP não conectado.');
         }
-        const statePath = path.join(process.cwd(), 'data', `session_${key}.json`);
-        const options: any = {};
-        if (fs.existsSync(statePath)) {
-          this.logger.info(`[LocalBrowserRuntime] Carregando storageState para ${key} de ${statePath}`);
-          try {
-            options.storageState = statePath;
-          } catch (e: any) {
-            this.logger.error(`[LocalBrowserRuntime] Falha ao ler storageState para ${key}: ${e.message}`);
-          }
-        }
-        ctx = await this.browser.newContext(options);
-        ctx.on('close', () => {
-          this.contexts.delete(key);
-        });
+        // Utilizar o contexto principal do Chrome que já está aberto e logado
+        const existingContext = this.browser.contexts()[0];
+        ctx = existingContext || await this.browser.newContext();
         this.contexts.set(key, ctx);
       } else {
         const dir = path.join(this.config.userDataDir, key);
@@ -286,6 +275,9 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
         this.logger.warn?.(`[LocalBrowserRuntime] Múltiplos contextos de navegador detectados (${contexts.length}). Utilizando o primeiro.`);
       }
       this.context = contexts[0];
+      this.contexts.set('default', contexts[0]);
+      this.contexts.set('amazon', contexts[0]);
+      this.contexts.set('mercadolivre', contexts[0]);
 
       this.startTime = Date.now();
       this.lastReconnectTime = new Date().toISOString();

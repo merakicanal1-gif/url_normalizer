@@ -98,102 +98,21 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
     try {
       const isRealPlaywright = typeof rawPage.locator === 'function' && typeof rawPage.locator('body').count === 'function';
       if (!isRealPlaywright) {
-        // Mock para fins de testes unitários rápidos fora de execução Playwright real
         link_afiliado = 'https://meli.la/mock-affiliate';
       } else {
-        // Etapa 1 — Validar a barra de afiliados
-        const affiliateBarSelector = '*:has-text("Afiliados"), *:has-text("Métricas"), *:has-text("Configurações"), *:has-text("Compartilhar")';
-        const possibleBars = rawPage.locator(affiliateBarSelector);
-        const count = await possibleBars.count().catch(() => 0);
-        
-        let hasBar = false;
-        if (count > 0) {
-          const shareBtn = rawPage.locator('button:has-text("Compartilhar"), a:has-text("Compartilhar"), *:text-is("Compartilhar")').first();
-          hasBar = (await shareBtn.count().catch(() => 0)) > 0 && (await shareBtn.isVisible().catch(() => false));
+        // Se a URL original já for um link curto meli.la, preserva
+        if (url.includes('meli.la')) {
+          link_afiliado = url.trim();
         }
 
-        if (!hasBar) {
-          throw new AffiliateLinkError('Não foi possível gerar ou capturar o link oficial de afiliado do Mercado Livre.');
-        }
-
-        this.logger.info('[MercadoLivreProductExtractor] Barra superior do Programa de Afiliados detectada.');
-        const shareBtn = rawPage.locator('button:has-text("Compartilhar"), a:has-text("Compartilhar"), *:text-is("Compartilhar")').first();
-
-        // Etapa 2 — Abrir o modal
-        await shareBtn.waitFor({ state: 'visible', timeout: 3000 });
-        await shareBtn.click({ force: true });
-        this.logger.info('[MercadoLivreProductExtractor] Botão Compartilhar clicado.');
-
-        // O modal pode ser identificado por link-generator, popper ou contêiner específico de Gerar link
-        const modalContainer = rawPage.locator('.link-generator, div[data-testid="popper"], .andes-popper, div:has-text("Gerar link / ID de produto")').first();
-        await modalContainer.waitFor({ state: 'visible', timeout: 3000 });
-        this.logger.info('[MercadoLivreProductExtractor] Modal de afiliados detectado.');
-
-        // Etapa 3 — Esperar o modal finalizar completamente o carregamento e ler link
-        await rawPage.waitForTimeout(500);
-
-        // Tentativa 1: Ler diretamente do textarea do Link do Produto
-        for (let attempt = 1; attempt <= 4; attempt++) {
-          try {
-            const textarea = modalContainer.locator('textarea[data-testid="text-field__label_link"], .textfield-link textarea, textarea').first();
-            const val = await textarea.inputValue({ timeout: 500 }).catch(() => '');
-            if (val && val.trim().startsWith('http')) {
-              link_afiliado = val.trim();
-              this.logger.info(`[MercadoLivreProductExtractor] Link de afiliado lido do textarea: "${link_afiliado}"`);
-              break;
-            }
-            const evalVal = await modalContainer.evaluate((el: any) => {
-              const ta = el.querySelector('textarea[data-testid="text-field__label_link"], .textfield-link textarea, textarea') as HTMLTextAreaElement | null;
-              return ta ? ta.value : null;
-            });
-            if (evalVal && evalVal.trim().startsWith('http')) {
-              link_afiliado = evalVal.trim();
-              this.logger.info(`[MercadoLivreProductExtractor] Link de afiliado lido via DOM evaluate: "${link_afiliado}"`);
-              break;
-            }
-          } catch (_) {}
-          await rawPage.waitForTimeout(300);
-        }
-
-        // Tentativa 2: Clicar no botão de cópia e ler o clipboard
+        // Método 1 (Principal e Mais Robusto): Gerador Oficial de Links (Linkbuilder)
         if (!link_afiliado) {
-          this.logger.info('[MercadoLivreProductExtractor] Textarea vazio. Tentando botão de cópia...');
-          const copyBtn = modalContainer.locator('button[data-testid="copy-button__label_link"], button.textfield-link__button, [data-testid*="copy-button"], button:has-text("Copiar"), *:text-is("Copiar")').first();
-          if (await copyBtn.count().catch(() => 0) > 0) {
-            const context = rawPage.context();
-            await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
-            await copyBtn.click({ force: true, timeout: 2000 }).catch(() => {});
-            await rawPage.waitForTimeout(500);
-
-            const clipboardValue = await rawPage.evaluate(async () => {
-              try {
-                return await navigator.clipboard.readText();
-              } catch (e) {
-                return null;
-              }
-            });
-
-            if (clipboardValue && clipboardValue.trim().startsWith('http')) {
-              link_afiliado = clipboardValue.trim();
-              this.logger.info(`[MercadoLivreProductExtractor] Link de afiliado oficial obtido via clipboard: "${link_afiliado}"`);
-            }
-          }
+          link_afiliado = await this.generateViaLinkbuilder(rawPage, canonicalUrl);
         }
 
-        // Tentativa 3: Extrair via regex do DOM do popover procurando estritamente meli.la
-        if (!link_afiliado || link_afiliado.includes('/afiliados/')) {
-          const match = await modalContainer.evaluate((el: any) => {
-            const m = el.innerHTML.match(/https?:\/\/meli\.la\/[a-zA-Z0-9_-]+/i);
-            return m ? m[0] : null;
-          });
-          if (match && match.trim().startsWith('http')) {
-            link_afiliado = match.trim();
-            this.logger.info(`[MercadoLivreProductExtractor] Link meli.la oficial extraído via regex do modal: "${link_afiliado}"`);
-          }
-        }
-
-        if (!link_afiliado || !link_afiliado.includes('meli.la')) {
-          link_afiliado = url.includes('meli.la') ? url : null;
+        // Método 2 (Fallback): Barra superior de afiliados na página do produto
+        if (!link_afiliado) {
+          link_afiliado = await this.generateViaTopBar(rawPage, canonicalUrl);
         }
       }
 
@@ -238,5 +157,94 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
         preco_atual
       };
     }
+  }
+
+  private async generateViaLinkbuilder(rawPage: Page, productUrl: string): Promise<string | null> {
+    try {
+      this.logger.info(`[MercadoLivreProductExtractor] Navegando para o Linkbuilder oficial: https://www.mercadolivre.com.br/afiliados/linkbuilder#hub`);
+      await rawPage.goto('https://www.mercadolivre.com.br/afiliados/linkbuilder#hub', {
+        waitUntil: 'domcontentloaded',
+        timeout: 15000
+      });
+
+      // Aguardar o textarea do linkbuilder carregar
+      const textarea = rawPage.locator('textarea, textarea[placeholder*="mercadolivre.com"], .andes-form-control__field').first();
+      await textarea.waitFor({ state: 'visible', timeout: 8000 });
+      
+      await textarea.click();
+      await textarea.fill(productUrl);
+      await rawPage.waitForTimeout(300);
+
+      // Clicar no botão "Gerar"
+      const generateBtn = rawPage.locator('button:has-text("Gerar"), button:text-is("Gerar"), .andes-button--loud:has-text("Gerar")').first();
+      await generateBtn.waitFor({ state: 'visible', timeout: 4000 });
+      await generateBtn.click({ force: true });
+      this.logger.info('[MercadoLivreProductExtractor] Botão Gerar clicado no Linkbuilder.');
+
+      // Aguardar o link meli.la ser gerado no painel da direita
+      for (let i = 0; i < 12; i++) {
+        await rawPage.waitForTimeout(500);
+        
+        // 1. Extrair via regex do DOM completo da página
+        const html = await rawPage.content().catch(() => '');
+        const match = html.match(/https?:\/\/meli\.la\/[a-zA-Z0-9_-]+/i);
+        if (match && match[0]) {
+          this.logger.info(`[MercadoLivreProductExtractor] Link meli.la obtido do Linkbuilder via DOM: "${match[0]}"`);
+          return match[0].trim();
+        }
+
+        // 2. Extrair de inputs/textareas de resultado
+        const resultInput = rawPage.locator('input[value*="meli.la"], textarea:has-text("meli.la"), a[href*="meli.la"]').first();
+        if (await resultInput.count().catch(() => 0) > 0) {
+          const href = await resultInput.getAttribute('href').catch(() => null);
+          if (href && href.includes('meli.la')) return href.trim();
+          const val = await resultInput.inputValue().catch(() => null);
+          if (val && val.includes('meli.la')) return val.trim();
+        }
+
+        // 3. Clicar no botão de cópia
+        const copyBtn = rawPage.locator('button:has-text("Copiar"), [data-testid*="copy"], button:has-text("Copiar link")').first();
+        if (await copyBtn.count().catch(() => 0) > 0 && await copyBtn.isVisible().catch(() => false)) {
+          const context = rawPage.context();
+          await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
+          await copyBtn.click({ force: true }).catch(() => {});
+          await rawPage.waitForTimeout(300);
+
+          const clipVal = await rawPage.evaluate(async () => {
+            try { return await navigator.clipboard.readText(); } catch { return null; }
+          });
+          if (clipVal && clipVal.includes('meli.la')) {
+            this.logger.info(`[MercadoLivreProductExtractor] Link meli.la obtido via clipboard no Linkbuilder: "${clipVal}"`);
+            return clipVal.trim();
+          }
+        }
+      }
+    } catch (err: any) {
+      this.logger.info(`[MercadoLivreProductExtractor] Tentativa via Linkbuilder falhou: ${err.message}`);
+    }
+    return null;
+  }
+
+  private async generateViaTopBar(rawPage: Page, productUrl: string): Promise<string | null> {
+    try {
+      const shareBtn = rawPage.locator('button:has-text("Compartilhar"), a:has-text("Compartilhar"), *:text-is("Compartilhar")').first();
+      const hasBar = (await shareBtn.count().catch(() => 0)) > 0 && (await shareBtn.isVisible().catch(() => false));
+      if (!hasBar) return null;
+
+      this.logger.info('[MercadoLivreProductExtractor] Tentando via barra superior...');
+      await shareBtn.click({ force: true });
+      
+      const modalContainer = rawPage.locator('.link-generator, div[data-testid="popper"], .andes-popper, div:has-text("Gerar link")').first();
+      await modalContainer.waitFor({ state: 'visible', timeout: 3000 });
+      await rawPage.waitForTimeout(500);
+
+      const match = await modalContainer.evaluate((el: any) => {
+        const m = el.innerHTML.match(/https?:\/\/meli\.la\/[a-zA-Z0-9_-]+/i);
+        return m ? m[0] : null;
+      }).catch(() => null);
+
+      if (match) return match.trim();
+    } catch {}
+    return null;
   }
 }

@@ -7,8 +7,20 @@ import { Page } from 'playwright-core';
 export class MercadoLivrePageClassifier implements IPageClassifier {
   public async classify(page: INavigatorPage, url: string): Promise<PageInspection> {
     const rawPage: Page = (page as any).getRawPage();
-    const title = await rawPage.title();
-    const html = await rawPage.content();
+    if (rawPage.isClosed()) {
+      return {
+        pageType: 'UNKNOWN',
+        confidence: 0,
+        url,
+        hasCTA: false,
+        hasProductImage: false,
+        hasBuyBox: false,
+        hasMLB: false,
+        evidences: ['Page closed before classification']
+      };
+    }
+    const title = await rawPage.title().catch(() => '');
+    const html = await rawPage.content().catch(() => '');
     const lowerHtml = html.toLowerCase();
     const lowerTitle = title.toLowerCase();
     const lowerUrl = url.toLowerCase();

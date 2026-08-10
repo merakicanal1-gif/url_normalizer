@@ -25,7 +25,7 @@ if ! ping -c 1 -W 2 "$POSITIVO_HOST" > /dev/null 2>&1; then
 fi
 
 echo "Conectando em $POSITIVO_HOST..."
-ssh emersonmeraki@"$POSITIVO_HOST" "cd ~/url_normalizer && git pull origin main && npm run build && pm2 restart url_normalizer && pm2 save"
+ssh -o StrictHostKeyChecking=accept-new emersonmeraki@"$POSITIVO_HOST" "cd ~/url_normalizer && git pull origin main && npm run build && pm2 restart url_normalizer && pm2 save"
 
 echo "=========================================="
 echo "🎉 DEPLOY CONCLUÍDO COM SUCESSO NO POSITIVO!"

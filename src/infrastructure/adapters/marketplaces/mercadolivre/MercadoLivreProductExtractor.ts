@@ -187,10 +187,11 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
         
         // 1. Extrair via regex do DOM completo da página
         const html = await rawPage.content().catch(() => '');
-        const match = html.match(/https?:\/\/meli\.la\/[a-zA-Z0-9_-]+/i);
+        const match = html.match(/meli\.la\/[a-zA-Z0-9_-]+/i);
         if (match && match[0]) {
-          this.logger.info(`[MercadoLivreProductExtractor] Link meli.la obtido do Linkbuilder via DOM: "${match[0]}"`);
-          return match[0].trim();
+          const fullLink = match[0].startsWith('http') ? match[0] : `https://${match[0]}`;
+          this.logger.info(`[MercadoLivreProductExtractor] Link meli.la obtido do Linkbuilder via DOM: "${fullLink}"`);
+          return fullLink.trim();
         }
 
         // 2. Extrair de inputs/textareas de resultado

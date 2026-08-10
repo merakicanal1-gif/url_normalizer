@@ -1,4 +1,5 @@
 import { ResolvedUrl } from '../../../domain/ports/IUrlResolver.js';
+import { MarketplaceHostRegistry } from '../../../domain/services/MarketplaceHostRegistry.js';
 
 interface HttpRedirectStep {
   url: string;
@@ -131,14 +132,23 @@ export async function followHttpRedirects(
     challengeType = 'LOGIN';
   }
 
-  // Novo critério objetivo de sucesso:
-  // 1. O status code final do redirecionamento ou da URL final deve ser de sucesso (2xx).
-  // 2. Não deve ter detectado nenhum desafio de segurança (WAF, CAPTCHA, Login, etc.).
-  // 3. A URL final obtida deve ser diferente da URL inicial requisitada.
-  // 4. Deve ter ocorrido pelo menos 1 redirecionamento de rede.
   const hasSuccessfulRedirect = redirects.length > 0 && currentUrl !== initialUrlString;
   const isFinalStatusOk = statusCode !== null && statusCode >= 200 && statusCode < 300;
-  const resolvedSuccess = isFinalStatusOk && !detectedChallenge && hasSuccessfulRedirect;
+
+  let isDestMarketplace = false;
+  try {
+    const host = new URL(currentUrl).hostname.toLowerCase();
+    isDestMarketplace = MarketplaceHostRegistry.isKnownMarketplace(host);
+  } catch {}
+
+  const isSameHost = (() => {
+    try {
+      return new URL(currentUrl).hostname.toLowerCase() === new URL(initialUrlString).hostname.toLowerCase();
+    } catch { return false; }
+  })();
+
+  // Se permaneceu no mesmo domínio encurtador (ex: compre.link -> compre.link/), delegar para o navegador
+  const resolvedSuccess = isFinalStatusOk && !detectedChallenge && hasSuccessfulRedirect && (!isSameHost || isDestMarketplace);
 
   return {
     finalUrl: currentUrl,

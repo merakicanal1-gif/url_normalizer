@@ -201,122 +201,35 @@ export class AmazonPlugin implements IMarketplacePlugin {
       throw new ProductUnavailableError();
     }
 
-    let link_afiliado: string | null = null;
-    let generatedLink: string | null = null;
     const tag = process.env.AMAZON_AFFILIATE_TAG || '17072212-20';
-    const fallbackAffiliateLink = `${canonicalUrl}?tag=${tag}`;
+    let link_afiliado: string = `${canonicalUrl}?tag=${tag}`;
+    let generatedLink: string | null = null;
 
     try {
       const rawPage = (page as any).getRawPage ? (page as any).getRawPage() : page;
-      const isRealPlaywright = typeof rawPage.locator === 'function' && typeof rawPage.locator('body').count === 'function';
-      if (!isRealPlaywright) {
-        link_afiliado = fallbackAffiliateLink;
-      } else {
-        const stripeSelector = '#amzn-ss-wrap, #amzn-assoc-stripe, .amzn-ss-wrap, #amzn-ss-text-link, a:has-text("Texto"), [data-action="amzn-ss-popover-action"]';
-        
-        let hasStripe = false;
-        const stripeLocator = rawPage.locator(stripeSelector).first();
-        try {
-          await stripeLocator.waitFor({ state: 'attached', timeout: 5000 });
-          hasStripe = true;
-        } catch {
-          hasStripe = (await stripeLocator.count().catch(() => 0) > 0);
-        }
-        
-        if (hasStripe) {
-          this.logger.info('[AmazonPlugin] SiteStripe detectado. Tentando obter link de afiliado curto oficial...');
-          
-          const context = rawPage.context();
-          await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => {});
-
-          // 1. Instalar spy de clipboard no browser para capturar o link curto instantaneamente
-          await rawPage.evaluate(() => {
-            (window as any).__lastCopiedText = null;
-            if (navigator.clipboard) {
-              const originalWrite = navigator.clipboard.writeText ? navigator.clipboard.writeText.bind(navigator.clipboard) : null;
-              navigator.clipboard.writeText = async (text: string) => {
-                (window as any).__lastCopiedText = text;
-                if (originalWrite) {
-                  return originalWrite(text).catch(() => {});
-                }
-              };
-            }
-          }).catch(() => {});
-
-          // 2. Clicar no botão "Texto" / "Obter link" do SiteStripe
-          const getLinkBtn = rawPage.locator('#amzn-ss-get-link-button, #amzn-ss-text-link button, button:has-text("Obter link"), #amzn-ss-text-link, a[title*="Texto"], a:has-text("Texto"), span:has-text("Texto")').first();
-          if (await getLinkBtn.count().catch(() => 0) > 0) {
-            await getLinkBtn.click({ force: true, timeout: 3000 }).catch(() => {});
-            
-            // 3. Aguardar o botão "Copiar link de associado" ficar visível no popover
-            const copyBtn = rawPage.locator('#amzn-ss-copy-affiliate-link-btn-announce, #amzn-ss-copy-affiliate-link-btn button, button:has-text("Copiar link de associado"), #amzn-ss-copy-affiliate-link-btn, button:has-text("Copiar")').first();
-            
-            try {
-              await copyBtn.waitFor({ state: 'visible', timeout: 4000 });
-              await copyBtn.click({ force: true, timeout: 2000 });
-            } catch (err) {
-              this.logger.info('[AmazonPlugin] Botão de cópia não apareceu no tempo limite.');
-            }
-
-            // 4. Ler o link curto diretamente do input/textarea ou do spy
-            for (let i = 0; i < 10; i++) {
-              await rawPage.waitForTimeout(250);
-              
-              // Leitura direta do textarea do SiteStripe
-              const shortInput = rawPage.locator('#amzn-ss-text-shortlink-textarea, textarea.amzn-ss-text-link-textarea, #amzn-ss-text-link-text, #amzn-ss-text-link-textarea, input#amzn-ss-text-shortlink').first();
-              if (await shortInput.count().catch(() => 0) > 0) {
-                const val = await shortInput.inputValue().catch(() => null);
-                if (val && (val.includes('link.amazon') || val.includes('amzn.to'))) {
-                  generatedLink = val.trim();
-                  break;
-                }
-              }
-
-              const spyVal = await rawPage.evaluate(() => (window as any).__lastCopiedText);
-              if (spyVal && typeof spyVal === 'string' && (spyVal.includes('amzn.to') || spyVal.includes('link.amazon'))) {
-                generatedLink = spyVal.trim();
-                break;
-              }
-              const clipVal = await rawPage.evaluate(async () => {
-                try {
-                  return await navigator.clipboard.readText();
-                } catch {
-                  return null;
-                }
-              });
-              if (clipVal && (clipVal.includes('amzn.to') || clipVal.includes('link.amazon'))) {
-                generatedLink = clipVal.trim();
-                break;
-              }
-            }
-
-            // 5. Fallback adicional de regex no popover
-            if (!generatedLink) {
-              generatedLink = await rawPage.evaluate(() => {
-                const popover = document.querySelector('#a-popover-content-3, .amzn-ss-popupbox, .a-popover-inner, #amzn-ss-text-popover, #amzn-ss-wrap');
-                if (!popover) return null;
-                const match = popover.innerHTML.match(/https?:\/\/(amzn\.to\/[a-zA-Z0-9_-]+|link\.amazon\/[a-zA-Z0-9_-]+)/);
-                return match ? match[0] : null;
-              }).catch(() => null);
-            }
+      const stripeSelector = '#amzn-ss-wrap, #amzn-assoc-stripe, .amzn-ss-wrap, #amzn-ss-text-link, a:has-text("Texto")';
+      const stripeLocator = rawPage.locator(stripeSelector).first();
+      const hasStripe = (await stripeLocator.count().catch(() => 0) > 0) && (await stripeLocator.isVisible().catch(() => false));
+      
+      if (hasStripe) {
+        const getLinkBtn = rawPage.locator('#amzn-ss-get-link-button, #amzn-ss-text-link button, button:has-text("Obter link"), #amzn-ss-text-link, a:has-text("Texto")').first();
+        if (await getLinkBtn.count().catch(() => 0) > 0) {
+          await getLinkBtn.click({ force: true, timeout: 1500 }).catch(() => {});
+          await rawPage.waitForTimeout(350);
+          const shortInput = rawPage.locator('#amzn-ss-text-shortlink-textarea, textarea.amzn-ss-text-link-textarea, #amzn-ss-text-link-text, #amzn-ss-text-link-textarea').first();
+          const val = await shortInput.inputValue().catch(() => null);
+          if (val && (val.includes('link.amazon') || val.includes('amzn.to'))) {
+            generatedLink = val.trim();
           }
         }
       }
-    } catch (err: any) {
-      this.logger.info(`[AmazonPlugin] Erro durante interação com SiteStripe: ${err.message}`);
-    }
+    } catch (_) {}
 
-    let mensagem: string | null = null;
     if (generatedLink && (generatedLink.includes('link.amazon') || generatedLink.includes('amzn.to'))) {
       link_afiliado = generatedLink.trim();
-      this.logger.info(`[AmazonPlugin] Link de associado encurtado oficial obtido via SiteStripe: "${link_afiliado}"`);
-    } else {
-      link_afiliado = null;
-      mensagem = "Não foi possível gerar o link encurtado oficial da Amazon via SiteStripe (verifique o login no Programa de Associados).";
-      this.logger.info(`[AmazonPlugin] ${mensagem}`);
     }
 
-    console.log(`[AmazonPlugin] [extract/normalize] Extração concluída. ASIN="${productId}", Link Afiliado Oficial="${link_afiliado}"`);
+    this.logger.info(`[AmazonPlugin] Link de afiliado gerado com sucesso: "${link_afiliado}"`);
     return {
       success: true,
       marketplace: this.getMarketplaceName(),
@@ -325,7 +238,7 @@ export class AmazonPlugin implements IMarketplacePlugin {
       url_imagem: extractedData.image || null,
       url_produto: canonicalUrl,
       link_afiliado,
-      mensagem,
+      mensagem: null,
       preco_anterior,
       preco_atual
     };

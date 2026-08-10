@@ -51,9 +51,9 @@ export class AmazonPlugin implements IMarketplacePlugin {
     const tag = process.env.AMAZON_AFFILIATE_TAG || '17072212-20';
     const link_afiliado = `${canonicalUrl}?tag=${tag}`;
 
-    // 2. Aguardar o título do produto aparecer no DOM (máximo 4s)
+    // 2. Aguardar o título ou imagem do produto anexar no DOM (instantâneo via streaming)
     try {
-      await rawPage.waitForSelector('#productTitle, h1#title, #landingImage, .a-price', { timeout: 4000 });
+      await rawPage.waitForSelector('#productTitle, h1#title, #landingImage, .a-price', { state: 'attached', timeout: 2500 });
     } catch (_) {}
 
     // 3. Extrair Título e Imagem diretamente via DOM em uma única avaliação rápida

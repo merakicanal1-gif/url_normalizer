@@ -129,14 +129,42 @@ export class NormalizeService {
           await activeSession.page.goto(resolved.finalUrl, this.defaultTimeoutMs);
         }
 
-        // Identificar o marketplace real analisando a página carregada
-        const identifiedMarketplace = await this.identifyMarketplace(activeSession.page);
-        console.log(`[NormalizeService] Marketplace identificado após carregamento da página: "${identifiedMarketplace}"`);
+        // Aguardar possíveis redirecionamentos JS em andamento se ainda não for marketplace conhecido
+        let identifiedMarketplace = await this.identifyMarketplace(activeSession.page);
+        if (identifiedMarketplace === 'generic' || identifiedMarketplace === 'shopee') {
+          const raw = (activeSession.page as any).getRawPage?.();
+          if (raw) {
+            for (let i = 0; i < 15; i++) {
+              await raw.waitForTimeout(400);
+              identifiedMarketplace = await this.identifyMarketplace(activeSession.page);
+              if (identifiedMarketplace === 'amazon' || identifiedMarketplace === 'mercadolivre') {
+                break;
+              }
+            }
+          }
+        }
 
-        // Validar se o marketplace de fato é suportado (apenas Amazon e Mercado Livre são suportados)
+        const actualFinalUrlStr = activeSession.page.getFinalUrl();
+        console.log(`[NormalizeService] Marketplace identificado após carregamento da página: "${identifiedMarketplace}" (URL: ${actualFinalUrlStr})`);
+
+        // Se após aguardar NÃO for Amazon nem Mercado Livre (ex: Magalu, Casas Bahia, etc.), retornar 200 seguro
         const supportedMarketplaces = ['amazon', 'mercadolivre'];
         if (!supportedMarketplaces.includes(identifiedMarketplace)) {
-          throw new UnsupportedMarketplaceError(`Marketplace não suportado: ${new URL(resolved.finalUrl).hostname}`);
+          let host = '';
+          try { host = new URL(actualFinalUrlStr).hostname; } catch { host = actualFinalUrlStr; }
+          console.log(`[NormalizeService] Loja/Marketplace não suportado (${host}). Retornando resposta segura sem quebrar workflow.`);
+          return {
+            success: true,
+            is_produto: false,
+            tipo_pagina: 'outro_marketplace',
+            marketplace: identifiedMarketplace || 'outro',
+            id_produto: null,
+            nome_produto: null,
+            url_imagem: null,
+            url_produto: actualFinalUrlStr,
+            link_afiliado: null,
+            mensagem: `Marketplace não suportado (${host}). Apenas ofertas da Amazon e do Mercado Livre são processadas.`
+          };
         }
 
         // Se o marketplace identificado for diferente do estimado inicial, recriar a sessão com o perfil isolado correspondente
@@ -154,12 +182,12 @@ export class NormalizeService {
           }
 
           // Navegar para a URL resolvida na nova sessão
-          await activeSession.page.goto(resolved.finalUrl, this.defaultTimeoutMs);
+          await activeSession.page.goto(actualFinalUrlStr, this.defaultTimeoutMs);
         }
 
         // Obter a URL real final após qualquer redirecionamento na nova sessão
-        const actualFinalUrlStr = activeSession.page.getFinalUrl();
-        const actualFinalUrl = new URL(actualFinalUrlStr);
+        const destinationUrlStr = activeSession.page.getFinalUrl();
+        const actualFinalUrl = new URL(destinationUrlStr);
 
         // Identificar o plugin correspondente pela URL final real
         const plugin = this.registry.resolve(actualFinalUrl);
@@ -300,11 +328,15 @@ export class NormalizeService {
 
   private async identifyMarketplace(page: INavigatorPage): Promise<string> {
     const urlStr = page.getFinalUrl();
-    const url = new URL(urlStr);
-    const hostname = url.hostname.toLowerCase();
+    let hostname = '';
+    try {
+      hostname = new URL(urlStr).hostname.toLowerCase();
+    } catch {
+      hostname = urlStr.toLowerCase();
+    }
 
     // 1. Checar por hostname/domínio
-    if (hostname.includes('amazon.')) {
+    if (hostname.includes('amazon.') || hostname.includes('amzn.to') || hostname.includes('amzn.com')) {
       return 'amazon';
     }
     if (hostname.includes('mercadolivre.') || hostname.includes('mercadolibre.') || hostname.includes('meli.la')) {
@@ -318,10 +350,10 @@ export class NormalizeService {
     try {
       const raw = (page as any).getRawPage?.();
       if (raw) {
-        const hasAmazonLogo = await raw.locator('a[href*="/ref=nav_logo"], #nav-logo-sprites, #amzn-ss-wrap').count().catch(() => 0) > 0;
+        const hasAmazonLogo = await raw.locator('a[href*="/ref=nav_logo"], #nav-logo-sprites, #amzn-ss-wrap, #dp-container, #productTitle').count().catch(() => 0) > 0;
         if (hasAmazonLogo) return 'amazon';
 
-        const hasMeliLogo = await raw.locator('.nav-logo, a[href*="mercadolivre.com.br"], #shortcut-menu').count().catch(() => 0) > 0;
+        const hasMeliLogo = await raw.locator('.nav-logo, a[href*="mercadolivre.com.br"], #shortcut-menu, .ui-pdp-title').count().catch(() => 0) > 0;
         if (hasMeliLogo) return 'mercadolivre';
       }
     } catch (e) {

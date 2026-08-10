@@ -70,7 +70,28 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
     }
 
     try {
-      const finalUrlStr = await pageToUse.goto(urlString, timeoutMs);
+      await pageToUse.goto(urlString, timeoutMs);
+
+      // Se a URL inicial não for um marketplace conhecido, aguardar redirecionamento via JS / meta refresh
+      if (rawPage) {
+        let currentUrl = pageToUse.getFinalUrl();
+        let host = '';
+        try { host = new URL(currentUrl).hostname.toLowerCase(); } catch {}
+        
+        const isKnown = host.includes('amazon.') || host.includes('mercadolivre.') || host.includes('mercadolibre.') || host.includes('meli.la');
+        if (!isKnown) {
+          for (let i = 0; i < 15; i++) {
+            await rawPage.waitForTimeout(400);
+            currentUrl = pageToUse.getFinalUrl();
+            try { host = new URL(currentUrl).hostname.toLowerCase(); } catch {}
+            if (host.includes('amazon.') || host.includes('mercadolivre.') || host.includes('mercadolibre.') || host.includes('meli.la')) {
+              break;
+            }
+          }
+        }
+      }
+
+      const finalUrlStr = pageToUse.getFinalUrl();
       const durationMs = Math.round(performance.now() - start);
 
       this.logger.info(`[PlaywrightRedirectResolver] Concluído via Playwright em ${durationMs}ms. URL final: ${finalUrlStr}`);

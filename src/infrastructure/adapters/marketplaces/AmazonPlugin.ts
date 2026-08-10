@@ -51,16 +51,24 @@ export class AmazonPlugin implements IMarketplacePlugin {
     const tag = process.env.AMAZON_AFFILIATE_TAG || '17072212-20';
     const link_afiliado = `${canonicalUrl}?tag=${tag}`;
 
-    // 2. Aguardar o título ou imagem do produto anexar no DOM (instantâneo via streaming)
+    // 2. Aguardar o título do produto anexar no DOM
     try {
-      await rawPage.waitForSelector('#productTitle, h1#title, #landingImage, .a-price', { state: 'attached', timeout: 2500 });
+      await rawPage.waitForSelector('#productTitle, #title, #landingImage', { state: 'attached', timeout: 3500 });
     } catch (_) {}
 
     // 3. Extrair Título e Imagem diretamente via DOM em uma única avaliação rápida
     const extractedData = await page.evaluate<{ title: string; image: string }>(() => {
-      const titleEl = document.querySelector('#productTitle') || document.querySelector('h1#title') || document.querySelector('h1');
-      const titleText = titleEl ? titleEl.textContent?.trim() || '' : document.title.replace(/amazon\.com(\.br)?/i, '').trim();
+      const titleEl = document.querySelector('#productTitle') || document.querySelector('#title');
+      let titleText = titleEl ? titleEl.textContent?.trim() || '' : '';
+      if (!titleText) {
+        const metaTitle = document.querySelector('meta[property="og:title"]');
+        if (metaTitle) titleText = (metaTitle.getAttribute('content') || '').replace(/^Amazon\.com\.br\s*:\s*/i, '').trim();
+      }
+      if (!titleText) {
+        titleText = document.title.replace(/^Amazon\.com\.br\s*:\s*/i, '').replace(/:\s*Amazon\.com\.br.*/i, '').trim();
+      }
 
+      let image = '';
       const imgEl = (
         document.querySelector('#landingImage') || 
         document.querySelector('#imgBlkFront') || 
@@ -69,9 +77,7 @@ export class AmazonPlugin implements IMarketplacePlugin {
         document.querySelector('.a-dynamic-image')
       ) as HTMLImageElement | null;
 
-      let image = '';
       if (imgEl) {
-        image = imgEl.src || imgEl.getAttribute('src') || '';
         const dynamicImgAttr = imgEl.getAttribute('data-a-dynamic-image');
         if (dynamicImgAttr) {
           try {
@@ -80,9 +86,12 @@ export class AmazonPlugin implements IMarketplacePlugin {
             if (urls.length > 0) image = urls[urls.length - 1];
           } catch (_) {}
         }
+        if (!image) {
+          image = imgEl.src || imgEl.getAttribute('src') || '';
+        }
       }
 
-      if (!image) {
+      if (!image || image.startsWith('data:')) {
         const metaImg = document.querySelector('meta[property="og:image"]');
         if (metaImg) image = metaImg.getAttribute('content') || '';
       }

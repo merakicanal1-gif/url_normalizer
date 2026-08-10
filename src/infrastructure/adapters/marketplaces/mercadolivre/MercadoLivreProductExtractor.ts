@@ -160,18 +160,18 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
         timeout: 15000
       });
 
-      // Aguardar o textarea do linkbuilder carregar
+      await rawPage.waitForTimeout(1000);
       const textarea = rawPage.locator('textarea, textarea[placeholder*="mercadolivre.com"], .andes-form-control__field').first();
       await textarea.waitFor({ state: 'visible', timeout: 8000 });
-      
       await textarea.click();
-      await textarea.fill(productUrl);
-      await rawPage.waitForTimeout(300);
+      await textarea.fill('');
+      await textarea.pressSequentially(productUrl, { delay: 2 });
+      await rawPage.waitForTimeout(400);
 
-      // Clicar no botão "Gerar"
+      // Clicar no botão "Gerar" agora habilitado
       const generateBtn = rawPage.locator('button:has-text("Gerar"), button:text-is("Gerar"), .andes-button--loud:has-text("Gerar")').first();
-      await generateBtn.waitFor({ state: 'visible', timeout: 4000 });
-      await generateBtn.click({ force: true });
+      await generateBtn.waitFor({ state: 'visible', timeout: 5000 });
+      await generateBtn.click();
       this.logger.info('[MercadoLivreProductExtractor] Botão Gerar clicado no Linkbuilder.');
 
       // Aguardar o link meli.la ser gerado no painel da direita

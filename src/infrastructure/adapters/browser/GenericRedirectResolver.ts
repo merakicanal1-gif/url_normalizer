@@ -23,10 +23,11 @@ export class GenericRedirectResolver implements IUrlResolver {
       this.logger.info(`[GenericRedirectResolver] Resolução HTTP concluída em ${durationMs}ms com ${res.redirects.length} redirecionamentos. ResolvedSuccess: ${res.resolvedSuccess}`);
 
       const outcome = res.resolvedSuccess ? 'RESOLVED' : 'CONTINUE';
+      const finalUrl = res.resolvedSuccess ? res.finalUrl : urlString;
 
       return {
         originalUrl: urlString,
-        finalUrl: res.finalUrl,
+        finalUrl,
         statusCode: res.statusCode,
         pageTitle: res.pageTitle,
         detectedChallenge: res.detectedChallenge,

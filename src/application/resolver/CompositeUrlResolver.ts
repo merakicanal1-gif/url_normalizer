@@ -58,9 +58,8 @@ export class CompositeUrlResolver implements IUrlResolver {
             changedMarketplace
           });
 
-          currentUrl = outputUrlObj;
-
           if (result.outcome === 'RESOLVED') {
+            currentUrl = outputUrlObj;
             const durationMs = Math.round(performance.now() - start);
             result.metadata.durationMs = durationMs;
             result.metadata.fallbackOccurred = fallbackOccurred;

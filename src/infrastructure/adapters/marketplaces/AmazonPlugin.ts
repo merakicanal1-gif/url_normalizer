@@ -51,53 +51,65 @@ export class AmazonPlugin implements IMarketplacePlugin {
     const tag = process.env.AMAZON_AFFILIATE_TAG || '17072212-20';
     const link_afiliado = `${canonicalUrl}?tag=${tag}`;
 
-    // 2. Aguardar o título do produto anexar no DOM
+    // 2. Aguardar o produto anexar no DOM e carregar via polling paciente
+    let extractedData = { title: '', image: '' };
+
     try {
-      await rawPage.waitForSelector('#productTitle, #title, #landingImage', { state: 'attached', timeout: 3500 });
+      await rawPage.waitForSelector('#productTitle, #title, #landingImage, #main-image, h1', { state: 'attached', timeout: 6000 }).catch(() => {});
     } catch (_) {}
 
-    // 3. Extrair Título e Imagem diretamente via DOM em uma única avaliação rápida
-    const extractedData = await page.evaluate<{ title: string; image: string }>(() => {
-      const titleEl = document.querySelector('#productTitle') || document.querySelector('#title');
-      let titleText = titleEl ? titleEl.textContent?.trim() || '' : '';
-      if (!titleText) {
-        const metaTitle = document.querySelector('meta[property="og:title"]');
-        if (metaTitle) titleText = (metaTitle.getAttribute('content') || '').replace(/^Amazon\.com\.br\s*:\s*/i, '').trim();
-      }
-      if (!titleText) {
-        titleText = document.title.replace(/^Amazon\.com\.br\s*:\s*/i, '').replace(/:\s*Amazon\.com\.br.*/i, '').trim();
-      }
-
-      let image = '';
-      const imgEl = (
-        document.querySelector('#landingImage') || 
-        document.querySelector('#imgBlkFront') || 
-        document.querySelector('#main-image') || 
-        document.querySelector('#landingImageBack') ||
-        document.querySelector('.a-dynamic-image')
-      ) as HTMLImageElement | null;
-
-      if (imgEl) {
-        const dynamicImgAttr = imgEl.getAttribute('data-a-dynamic-image');
-        if (dynamicImgAttr) {
-          try {
-            const parsed = JSON.parse(dynamicImgAttr);
-            const urls = Object.keys(parsed);
-            if (urls.length > 0) image = urls[urls.length - 1];
-          } catch (_) {}
+    for (let attempt = 0; attempt < 8; attempt++) {
+      extractedData = await page.evaluate<{ title: string; image: string }>(() => {
+        const titleEl = document.querySelector('#productTitle') || document.querySelector('#title') || document.querySelector('h1#title') || document.querySelector('#centerCol h1');
+        let titleText = titleEl ? titleEl.textContent?.trim() || '' : '';
+        
+        if (!titleText) {
+          const metaTitle = document.querySelector('meta[property="og:title"]');
+          if (metaTitle) {
+            titleText = (metaTitle.getAttribute('content') || '').replace(/^Amazon\.com\.br\s*:\s*/i, '').trim();
+          }
         }
-        if (!image) {
-          image = imgEl.src || imgEl.getAttribute('src') || '';
+        if (!titleText && document.title && !document.title.toLowerCase().includes('robot check') && !document.title.toLowerCase().includes('404')) {
+          titleText = document.title.replace(/^Amazon\.com\.br\s*:\s*/i, '').replace(/:\s*Amazon\.com\.br.*/i, '').trim();
         }
-      }
 
-      if (!image || image.startsWith('data:')) {
-        const metaImg = document.querySelector('meta[property="og:image"]');
-        if (metaImg) image = metaImg.getAttribute('content') || '';
-      }
+        let image = '';
+        const imgEl = (
+          document.querySelector('#landingImage') || 
+          document.querySelector('#imgBlkFront') || 
+          document.querySelector('#main-image') || 
+          document.querySelector('#landingImageBack') ||
+          document.querySelector('.a-dynamic-image') ||
+          document.querySelector('#main-image-container img')
+        ) as HTMLImageElement | null;
 
-      return { title: titleText, image };
-    });
+        if (imgEl) {
+          const dynamicImgAttr = imgEl.getAttribute('data-a-dynamic-image');
+          if (dynamicImgAttr) {
+            try {
+              const parsed = JSON.parse(dynamicImgAttr);
+              const urls = Object.keys(parsed);
+              if (urls.length > 0) image = urls[urls.length - 1];
+            } catch (_) {}
+          }
+          if (!image) {
+            image = imgEl.src || imgEl.getAttribute('src') || '';
+          }
+        }
+
+        if (!image || image.startsWith('data:')) {
+          const metaImg = document.querySelector('meta[property="og:image"]');
+          if (metaImg) image = metaImg.getAttribute('content') || '';
+        }
+
+        return { title: titleText, image };
+      });
+
+      if (extractedData.title) {
+        break;
+      }
+      await rawPage.waitForTimeout(600);
+    }
 
     if (!extractedData.title) {
       const title = await rawPage.title().catch(() => '');

@@ -437,6 +437,26 @@ export class LocalBrowserRuntime implements IBrowserRuntime {
 
     const page = await context.newPage();
 
+    // Otimização de alta performance: abortar mídia pesada, fontes e trackers
+    if (isManaged) {
+      await page.route('**/*', (route) => {
+        const type = route.request().resourceType();
+        const reqUrl = route.request().url();
+        if (
+          type === 'media' || 
+          type === 'font' || 
+          reqUrl.includes('amazon-adsystem.com') || 
+          reqUrl.includes('doubleclick.net') || 
+          reqUrl.includes('google-analytics.com') ||
+          reqUrl.includes('fls-na.amazon.com') ||
+          reqUrl.includes('unagi-na.amazon.com')
+        ) {
+          return route.abort().catch(() => {});
+        }
+        return route.continue().catch(() => {});
+      }).catch(() => {});
+    }
+
     if (isManaged) {
       this.managedPages.add(page);
     } else {

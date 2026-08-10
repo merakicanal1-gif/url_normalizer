@@ -136,9 +136,14 @@ export async function followHttpRedirects(
   const isFinalStatusOk = statusCode !== null && statusCode >= 200 && statusCode < 300;
 
   let isDestMarketplace = false;
+  let isUnsupportedStore = false;
+  let isShortener = false;
+
   try {
     const host = new URL(currentUrl).hostname.toLowerCase();
     isDestMarketplace = MarketplaceHostRegistry.isKnownMarketplace(host);
+    isUnsupportedStore = MarketplaceHostRegistry.getUnsupportedStoreInfo(host).isUnsupported;
+    isShortener = MarketplaceHostRegistry.isGenericShortener(host);
   } catch {}
 
   const isSameHost = (() => {
@@ -147,8 +152,9 @@ export async function followHttpRedirects(
     } catch { return false; }
   })();
 
-  // Se permaneceu no mesmo domínio encurtador (ex: compre.link -> compre.link/), delegar para o navegador
-  const resolvedSuccess = isFinalStatusOk && !detectedChallenge && hasSuccessfulRedirect && (!isSameHost || isDestMarketplace);
+  // Se redirecionou para marketplace conhecido ou loja de terceiros (ex: riachuelo.com.br), é sucesso imediato
+  const isRealDestination = isDestMarketplace || isUnsupportedStore || (!isSameHost && !isShortener);
+  const resolvedSuccess = isFinalStatusOk && !detectedChallenge && hasSuccessfulRedirect && isRealDestination;
 
   return {
     finalUrl: currentUrl,

@@ -4,6 +4,7 @@ import { INavigatorPage } from '../../../domain/ports/INavigator.js';
 import { INormalizeTelemetry } from '../../../domain/ports/INormalizeTelemetry.js';
 import { NoOpNormalizeTelemetry } from '../../telemetry/NoOpNormalizeTelemetry.js';
 import { RedirectReason } from '../../../domain/models/trace/RedirectReason.js';
+import { MarketplaceHostRegistry } from '../../../domain/services/MarketplaceHostRegistry.js';
 
 export class PlaywrightRedirectResolver implements IUrlResolver {
   private telemetry: INormalizeTelemetry;
@@ -78,13 +79,13 @@ export class PlaywrightRedirectResolver implements IUrlResolver {
         let host = '';
         try { host = new URL(currentUrl).hostname.toLowerCase(); } catch {}
         
-        const isKnown = host.includes('amazon.') || host.includes('mercadolivre.') || host.includes('mercadolibre.') || host.includes('meli.la');
-        if (!isKnown) {
-          for (let i = 0; i < 15; i++) {
-            await rawPage.waitForTimeout(400);
+        const isDone = host.includes('amazon.') || host.includes('mercadolivre.') || host.includes('mercadolibre.') || host.includes('meli.la') || MarketplaceHostRegistry.getUnsupportedStoreInfo(host).isUnsupported;
+        if (!isDone) {
+          for (let i = 0; i < 10; i++) {
+            await rawPage.waitForTimeout(300);
             currentUrl = pageToUse.getFinalUrl();
             try { host = new URL(currentUrl).hostname.toLowerCase(); } catch {}
-            if (host.includes('amazon.') || host.includes('mercadolivre.') || host.includes('mercadolibre.') || host.includes('meli.la')) {
+            if (host.includes('amazon.') || host.includes('mercadolivre.') || host.includes('mercadolibre.') || host.includes('meli.la') || MarketplaceHostRegistry.getUnsupportedStoreInfo(host).isUnsupported) {
               break;
             }
           }

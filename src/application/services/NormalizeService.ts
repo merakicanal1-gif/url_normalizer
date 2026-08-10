@@ -53,6 +53,24 @@ export class NormalizeService {
         initialMarketplace = 'shopee';
       }
 
+      // 0. Pré-validação instantânea para lojas de terceiros conhecidas (ex: Riachuelo, Magalu, etc.)
+      const preCheckStore = MarketplaceHostRegistry.getUnsupportedStoreInfo(originalUrl.hostname);
+      if (preCheckStore.isUnsupported) {
+        console.log(`[NormalizeService] URL identificada como loja não suportada (${preCheckStore.name}) no pré-check.`);
+        return {
+          success: true,
+          is_produto: false,
+          tipo_pagina: 'outro_marketplace',
+          marketplace: preCheckStore.name.toLowerCase().replace(/[^a-z0-9]/g, ''),
+          id_produto: null,
+          nome_produto: null,
+          url_imagem: null,
+          url_produto: originalUrlString,
+          link_afiliado: null,
+          mensagem: `Marketplace não suportado (${preCheckStore.name}). Apenas ofertas da Amazon e do Mercado Livre são processadas.`
+        };
+      }
+
       // Notificar início da telemetria
       this.telemetry.begin({
         originalUrl: originalUrlString,
@@ -132,13 +150,24 @@ export class NormalizeService {
         // Aguardar possíveis redirecionamentos JS em andamento se ainda não for marketplace conhecido
         let identifiedMarketplace = await this.identifyMarketplace(activeSession.page);
         if (identifiedMarketplace === 'generic' || identifiedMarketplace === 'shopee') {
-          const raw = (activeSession.page as any).getRawPage?.();
-          if (raw) {
-            for (let i = 0; i < 15; i++) {
-              await raw.waitForTimeout(400);
-              identifiedMarketplace = await this.identifyMarketplace(activeSession.page);
-              if (identifiedMarketplace === 'amazon' || identifiedMarketplace === 'mercadolivre') {
-                break;
+          let host = '';
+          try { host = new URL(activeSession.page.getFinalUrl()).hostname.toLowerCase(); } catch {}
+          const storeCheck = MarketplaceHostRegistry.getUnsupportedStoreInfo(host);
+          
+          // Se for loja não suportada já identificada (ex: Riachuelo, Magalu), não precisa esperar loop
+          if (!storeCheck.isUnsupported) {
+            const raw = (activeSession.page as any).getRawPage?.();
+            if (raw) {
+              for (let i = 0; i < 10; i++) {
+                await raw.waitForTimeout(300);
+                identifiedMarketplace = await this.identifyMarketplace(activeSession.page);
+                if (identifiedMarketplace === 'amazon' || identifiedMarketplace === 'mercadolivre') {
+                  break;
+                }
+                try { host = new URL(activeSession.page.getFinalUrl()).hostname.toLowerCase(); } catch {}
+                if (MarketplaceHostRegistry.getUnsupportedStoreInfo(host).isUnsupported) {
+                  break;
+                }
               }
             }
           }
@@ -147,23 +176,25 @@ export class NormalizeService {
         const actualFinalUrlStr = activeSession.page.getFinalUrl();
         console.log(`[NormalizeService] Marketplace identificado após carregamento da página: "${identifiedMarketplace}" (URL: ${actualFinalUrlStr})`);
 
-        // Se após aguardar NÃO for Amazon nem Mercado Livre (ex: Magalu, Casas Bahia, etc.), retornar 200 seguro
+        // Se após resolução NÃO for Amazon nem Mercado Livre (ex: Riachuelo, Magalu, Casas Bahia, etc.), retornar 200 seguro
         const supportedMarketplaces = ['amazon', 'mercadolivre'];
         if (!supportedMarketplaces.includes(identifiedMarketplace)) {
           let host = '';
           try { host = new URL(actualFinalUrlStr).hostname; } catch { host = actualFinalUrlStr; }
-          console.log(`[NormalizeService] Loja/Marketplace não suportado (${host}). Retornando resposta segura sem quebrar workflow.`);
+          const detectedStore = MarketplaceHostRegistry.getUnsupportedStoreInfo(host);
+          const storeDisplayName = detectedStore.isUnsupported ? detectedStore.name : host;
+          console.log(`[NormalizeService] Loja/Marketplace não suportado (${storeDisplayName}). Retornando resposta segura sem quebrar workflow.`);
           return {
             success: true,
             is_produto: false,
             tipo_pagina: 'outro_marketplace',
-            marketplace: identifiedMarketplace || 'outro',
+            marketplace: detectedStore.isUnsupported ? detectedStore.name.toLowerCase().replace(/[^a-z0-9]/g, '') : (identifiedMarketplace || 'outro'),
             id_produto: null,
             nome_produto: null,
             url_imagem: null,
             url_produto: actualFinalUrlStr,
             link_afiliado: null,
-            mensagem: `Marketplace não suportado (${host}). Apenas ofertas da Amazon e do Mercado Livre são processadas.`
+            mensagem: `Marketplace não suportado (${storeDisplayName}). Apenas ofertas da Amazon e do Mercado Livre são processadas.`
           };
         }
 

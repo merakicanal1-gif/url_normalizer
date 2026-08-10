@@ -9,8 +9,8 @@ export class PlaywrightNavigatorPage implements INavigatorPage {
   public async goto(url: string, timeoutMs?: number): Promise<string> {
     try {
       await this.page.goto(url, {
-        waitUntil: 'domcontentloaded',
-        timeout: timeoutMs || 15000
+        waitUntil: 'commit',
+        timeout: timeoutMs || 10000
       });
     } catch (e: any) {
       console.log(`[PlaywrightNavigatorPage] Aviso no goto para ${url}: ${e.message}`);

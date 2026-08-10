@@ -100,15 +100,8 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
       if (!isRealPlaywright) {
         link_afiliado = 'https://meli.la/mock-affiliate';
       } else {
-        // Se a URL original já for um link curto meli.la, preserva
-        if (url.includes('meli.la')) {
-          link_afiliado = url.trim();
-        }
-
-        // Método 1 (Principal e Mais Robusto): Gerador Oficial de Links (Linkbuilder)
-        if (!link_afiliado) {
-          link_afiliado = await this.generateViaLinkbuilder(rawPage, canonicalUrl);
-        }
+        // Método 1 (Principal e Mais Confiável): Gerador Oficial de Links (Linkbuilder)
+        link_afiliado = await this.generateViaLinkbuilder(rawPage, canonicalUrl);
 
         // Método 2 (Fallback): Barra superior de afiliados na página do produto
         if (!link_afiliado) {

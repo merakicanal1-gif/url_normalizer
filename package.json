@@ -8,6 +8,7 @@
     "dev": "tsx watch --env-file=.env src/infrastructure/transport/http/server.ts",
     "clean": "rimraf dist",
     "build": "npm run clean && tsc",
+    "deploy": "bash scripts/deploy.sh",
     "start": "node --env-file=.env dist/infrastructure/transport/http/server.js",
     "test": "node --import tsx --test \"src/**/*.test.ts\""
   },

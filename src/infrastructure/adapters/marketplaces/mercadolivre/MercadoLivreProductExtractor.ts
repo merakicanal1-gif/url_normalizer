@@ -36,18 +36,38 @@ export class MercadoLivreProductExtractor implements IProductExtractor {
 
       // Imagem do Produto
       let image = '';
-      const candidateImages = Array.from(document.querySelectorAll('img'))
-        .map(img => img.src || img.getAttribute('data-src') || img.getAttribute('data-zoom') || '')
-        .filter(src => src && (src.includes('mlstatic.com') || src.includes('http2')));
 
-      if (candidateImages.length > 0) {
-        const mainImg = candidateImages.find(src => src.includes('/D_NQ_') || src.includes('-OO.webp') || src.includes('-O.webp') || src.includes('/D_Q_NP_'));
-        image = mainImg || candidateImages[0];
+      // 1. Meta tag OpenGraph (og:image) - Sempre a imagem oficial e canônica do produto
+      const ogImg = document.querySelector('meta[property="og:image"]');
+      const ogSrc = ogImg ? ogImg.getAttribute('content') || '' : '';
+      if (ogSrc && ogSrc.startsWith('http') && !ogSrc.includes('logo') && !ogSrc.includes('banner')) {
+        image = ogSrc.trim();
       }
 
+      // 2. Galeria oficial da PDP (.ui-pdp-gallery__figure, .ui-pdp-gallery__figure__image, [data-zoom])
       if (!image) {
-        const ogImg = document.querySelector('meta[property="og:image"]');
-        image = ogImg ? ogImg.getAttribute('content') || '' : '';
+        const galleryEl = document.querySelector('.ui-pdp-gallery__figure img, img.ui-pdp-gallery__figure__image, .ui-pdp-gallery img[data-zoom], img[data-zoom], .ui-pdp-gallery img');
+        if (galleryEl) {
+          const src = galleryEl.getAttribute('data-zoom') || galleryEl.getAttribute('src') || galleryEl.getAttribute('data-src') || '';
+          if (src && src.startsWith('http') && !src.includes('data:image')) {
+            image = src.trim();
+          }
+        }
+      }
+
+      // 3. Imagens dentro do contêiner principal da PDP (ignorando explicitamente nav, header, promoções)
+      if (!image) {
+        const pdpContainer = document.querySelector('.ui-pdp-container, main, #root-app');
+        if (pdpContainer) {
+          const candidateImages = Array.from(pdpContainer.querySelectorAll('img'))
+            .filter(img => !img.closest('header, nav, .nav-header, .user-menu, .vip-header'))
+            .map(img => img.getAttribute('data-zoom') || img.src || img.getAttribute('data-src') || '')
+            .filter(src => src.startsWith('http') && !src.includes('data:image') && !src.includes('logo') && !src.includes('promo') && !src.includes('banner'));
+          
+          if (candidateImages.length > 0) {
+            image = candidateImages[0];
+          }
+        }
       }
 
       // Preço Anterior
